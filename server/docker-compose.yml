@@ -1,0 +1,30 @@
+version: '3.8'
+
+services:
+  ollama:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: minecraft-ollama-server
+    ports:
+      - "11434:11434"
+    volumes:
+      # Persist Ollama models across container restarts
+      - ollama_data:/root/.ollama
+      # Mount configuration directory
+      - ./config:/app/config:ro
+      # Mount data directory for shared resources
+      - ./data:/app/data
+    environment:
+      - OLLAMA_HOST=0.0.0.0
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:11434/api/tags"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+volumes:
+  ollama_data:
+    driver: local
