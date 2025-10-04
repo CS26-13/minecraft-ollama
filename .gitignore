@@ -28,7 +28,11 @@ forge*changelog.txt
 server/data/*
 !server/data/.gitkeep
 server/config/ollama.env
+server/backup/
 *.log
 
 # Docker
 .docker/
+
+# Environment
+.env
