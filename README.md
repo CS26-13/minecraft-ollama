@@ -21,6 +21,17 @@ It would be awesome to implement [Ollama](https://ollama.com/) into Minecraft as
 > [!NOTE]
 > Conversations likely limited to villagers with jobs 
 
+## Server Setup
+
+For setting up the Ollama server with Docker for cross-platform development (Mac, Windows, Linux), see the [Server Setup Guide](./SERVER_SETUP.md).
+
+Quick start:
+```bash
+cd server
+docker-compose up -d
+./scripts/setup-models.sh
+```
+
 ## Mod vs Plugin?
 * A ModPack will disassemble and assemble the game code to add something new into it when building the game.
 * A Plugin respects the game code but adds on top of it, it can modify in this tree:

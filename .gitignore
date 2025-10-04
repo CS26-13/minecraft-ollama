@@ -23,3 +23,12 @@ run
 
 # Files from Forge MDK
 forge*changelog.txt
+
+# Server setup
+server/data/*
+!server/data/.gitkeep
+server/config/ollama.env
+*.log
+
+# Docker
+.docker/
