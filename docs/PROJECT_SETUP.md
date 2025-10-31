@@ -18,3 +18,6 @@
 
 ## Running the modded minecraft client:
 1) Simply click "Launch" or double click the minecraft instance within MultiMC
+  
+  
+#### Disclaimer: Only Tested on Windows as of 10/31/2025
