@@ -27,3 +27,4 @@ forge*changelog.txt
 # vscode
 .vscode/
 .DS_Store
+.deploy/*.env
