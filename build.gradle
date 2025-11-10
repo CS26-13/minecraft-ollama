@@ -242,3 +242,76 @@ sourceSets.each {
     it.output.resourcesDir = dir
     it.java.destinationDirectory = dir
 }
+
+// JAR SIGNING 
+// This section adds an automatic post-build signing step to the Forge mod.
+// When a local keystore.properties file and keystore (modsigning.jks) are found,
+// Gradle uses Java's jarsigner (via Ant) to digitally sign the final mod JAR.
+//
+// If keystore.properties does not exist, the signing step is skipped safely,
+// so anyone can build the mod without needing the private key.
+import java.util.Properties
+
+def keystorePropsFile = rootProject.file('keystore.properties')
+def keystoreProps = new Properties()
+if (keystorePropsFile.exists()) {
+    keystorePropsFile.withInputStream { keystoreProps.load(it) }
+}
+
+// Figure out which jar is the "final" artifact for this ForgeGradle version.
+// Prefer reobf/remapped output when present, otherwise fall back to plain jar.
+def resolveUnsignedJarFile = {
+    def candidates = ['reobfJar', 'remapJar', 'jar']
+    for (String name : candidates) {
+        def t = tasks.findByName(name)
+        if (t != null) {
+            try {
+                return t.archiveFile.get().asFile
+            } catch (ignored) {
+                if (t.hasProperty('archivePath')) return t.archivePath
+            }
+        }
+    }
+    throw new GradleException("Could not determine which JAR to sign (no jar-like tasks found).")
+}
+
+//Register a new Gradle task: signJar
+//Runs automatically after 'build'
+//Signs the JAR using the Ant signjar tool (same as jarsigner)
+//Produces a copy of the jar with '-signed' appended to its filename
+tasks.register('signJar') {
+    description = 'Sign the mod jar using ant.signjar (jarsigner under the hood)'
+    group = 'build'
+
+    // Ensure the build runs first so the jar exists before signing
+    dependsOn tasks.named('build')
+    onlyIf { keystorePropsFile.exists() }
+
+    doLast {
+        def unsigned = resolveUnsignedJarFile()
+        if (!unsigned.exists()) {
+            throw new GradleException("Unsigned JAR not found: ${unsigned}")
+        }
+        def signed = new File(unsigned.parentFile, unsigned.name.replace('.jar', '-signed.jar'))
+
+        logger.lifecycle("Signing ${unsigned.name} → ${signed.name}")
+
+        // Core signing logic using Ant's built-in signjar task
+        ant.signjar(
+            jar: unsigned,                              // Input jar to sign
+            signedjar: signed,                          // Output jar file
+            keystore: keystoreProps['keystore'],        // Path to keystore file
+            storepass: keystoreProps['storePass'],
+            keypass: keystoreProps['keyPass'],
+            alias: keystoreProps['keyAlias'],
+            verbose: true                               // Print detailed signing info
+        )
+
+        logger.lifecycle("Signed JAR: ${signed}")
+    }
+}
+
+tasks.named('build') {
+    finalizedBy tasks.named('signJar')
+}
+
