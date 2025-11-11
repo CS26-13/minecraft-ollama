@@ -1,6 +1,7 @@
 package net.kevinthedang.ollamamod;
 
 import com.mojang.logging.LogUtils;
+import net.kevinthedang.ollamamod.screen.OllamaVillagerChatScreen;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.components.Button;
 import net.minecraft.client.gui.screens.inventory.MerchantScreen;
@@ -67,8 +68,8 @@ public final class OllamaMod {
         public static void onScreenInit(ScreenEvent.Init.Post event) {
             if (event.getScreen() instanceof MerchantScreen merchantScreen) {
 
-                int x = merchantScreen.width / 2 + 106; // full width is 512
-                int y = merchantScreen.height / 2 - 13; // full height is 256
+                int x = merchantScreen.width / 2 + 106;
+                int y = merchantScreen.height / 2 - 13;
 
                 Button chatButton = Button.builder(Component.literal("Chat"),button -> handleChatButtonClick(merchantScreen))
                         .pos(x, y)
@@ -80,10 +81,14 @@ public final class OllamaMod {
 
         private static void handleChatButtonClick(MerchantScreen screen) {
             // button click handler
-            Player player = Minecraft.getInstance().player;
+            Minecraft mc = Minecraft.getInstance();
+            Player player = mc.player;
             if (player != null) {
-                player.displayClientMessage(Component.literal("CHAT button clicked!"), true);
+                player.displayClientMessage(Component.literal("Opening Villager chat..."), true);
                 LOGGER.info("Chat button was clicked!");
+
+                screen.onClose();
+                mc.setScreen(new OllamaVillagerChatScreen(screen));
             }
         }
     }
