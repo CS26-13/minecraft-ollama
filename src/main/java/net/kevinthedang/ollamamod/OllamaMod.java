@@ -1,9 +1,15 @@
 package net.kevinthedang.ollamamod;
 
 import com.mojang.logging.LogUtils;
+import net.kevinthedang.ollamamod.screen.OllamaVillagerChatScreen;
 import net.minecraft.client.Minecraft;
+import net.minecraft.client.gui.components.Button;
+import net.minecraft.client.gui.screens.inventory.MerchantScreen;
+import net.minecraft.network.chat.Component;
+import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraftforge.api.distmarker.Dist;
+import net.minecraftforge.client.event.ScreenEvent;
 import net.minecraftforge.eventbus.api.listener.SubscribeEvent;
 import net.minecraftforge.fml.common.Mod;
 import net.minecraftforge.fml.config.ModConfig;
@@ -14,12 +20,12 @@ import net.minecraftforge.registries.ForgeRegistries;
 import org.slf4j.Logger;
 
 // The value here should match an entry in the META-INF/mods.toml file
-@Mod(OllamaMod.MODID)
+@Mod(OllamaMod.MOD_ID)
 public final class OllamaMod {
     // Define mod id in a common place for everything to reference
-    public static final String MODID = "ollamamod";
+    public static final String MOD_ID = "ollamamod"; // change to use MOD_ID instead of MODID
     // Directly reference a slf4j logger
-    private static final Logger LOGGER = LogUtils.getLogger();
+    public static final Logger LOGGER = LogUtils.getLogger(); // changed to public
 
     public OllamaMod(FMLJavaModLoadingContext context) {
         var modBusGroup = context.getModBusGroup();
@@ -45,13 +51,45 @@ public final class OllamaMod {
 
 
     // You can use EventBusSubscriber to automatically register all static methods in the class annotated with @SubscribeEvent
-    @Mod.EventBusSubscriber(modid = MODID, value = Dist.CLIENT)
+    @Mod.EventBusSubscriber(modid = MOD_ID, value = Dist.CLIENT)
     public static class ClientModEvents {
         @SubscribeEvent
         public static void onClientSetup(FMLClientSetupEvent event) {
             // Some client setup code
             LOGGER.info("HELLO FROM CLIENT SETUP");
             LOGGER.info("MINECRAFT NAME >> {}", Minecraft.getInstance().getUser().getName());
+        }
+    }
+
+    @Mod.EventBusSubscriber(modid = MOD_ID, bus = Mod.EventBusSubscriber.Bus.FORGE, value = Dist.CLIENT)
+    public static class VillagerScreenHandler {
+
+        @SubscribeEvent
+        public static void onScreenInit(ScreenEvent.Init.Post event) {
+            if (event.getScreen() instanceof MerchantScreen merchantScreen) {
+
+                int x = merchantScreen.width / 2 + 106;
+                int y = merchantScreen.height / 2 - 13;
+
+                Button chatButton = Button.builder(Component.literal("Chat"),button -> handleChatButtonClick(merchantScreen))
+                        .pos(x, y)
+                        .size(25, 11)
+                        .build();
+                event.addListener(chatButton);
+            }
+        }
+
+        private static void handleChatButtonClick(MerchantScreen screen) {
+            // button click handler
+            Minecraft mc = Minecraft.getInstance();
+            Player player = mc.player;
+            if (player != null) {
+                player.displayClientMessage(Component.literal("Opening Villager chat..."), true);
+                LOGGER.info("Chat button was clicked!");
+
+                screen.onClose();
+                mc.setScreen(new OllamaVillagerChatScreen(screen));
+            }
         }
     }
 }
