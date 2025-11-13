@@ -28,3 +28,7 @@ forge*changelog.txt
 .vscode/
 .DS_Store
 .deploy/*.env
+
+# jar Signing secrets
+modsigning.jks
+keystore.properties
