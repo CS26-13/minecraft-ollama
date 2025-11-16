@@ -55,18 +55,18 @@ public class OllamaVillagerChatScreen extends Screen {
                 .size(12, 12)
                 .build());
 
-        // chat input
-        // chat input
-        this.chatInput = new EditBox(
-                this.font,
-                startX + 5,
-                startY + GUI_HEIGHT - 30,
-                GUI_WIDTH - 45,
-                20,
-                Component.literal("Type your message..."));
-        this.chatInput.setMaxLength(128);
-        this.chatInput.setHint(Component.literal("Type your message..."));
-        this.addRenderableWidget(this.chatInput);
+                // chat input
+                this.chatInput = new EditBox(
+                        this.font,
+                        startX + 5,
+                        startY + GUI_HEIGHT - 30,
+                        GUI_WIDTH - 45,
+                        20,
+                        Component.literal("Type your message..."));
+                this.chatInput.setMaxLength(128);
+                this.chatInput.setHint(Component.literal("Type your message..."));
+                this.addRenderableWidget(this.chatInput);
+                this.setInitialFocus(this.chatInput);
 
         // send button
         this.sendButton = this.addRenderableWidget(Button.builder(
@@ -240,31 +240,33 @@ public class OllamaVillagerChatScreen extends Screen {
 
         guiGraphics.disableScissor();
     }
-
-    @Override
+    
     public boolean keyPressed(int keyCode, int scanCode, int modifiers) {
-        // If the input box is focused and Enter was pressed, send the message
-        if (this.chatInput != null
-                && this.chatInput.isFocused()
-                && (keyCode == GLFW.GLFW_KEY_ENTER || keyCode == GLFW.GLFW_KEY_KP_ENTER)) {
-            this.sendMessage();
-            return true;
-        }
-
-        // Then let the EditBox handle other keys (arrows, backspace, etc.)
+        // Let the EditBox handle navigation, backspace, etc.
         if (this.chatInput != null && this.chatInput.keyPressed(keyCode, scanCode, modifiers)) {
             return true;
         }
 
-        // Finally, go back to the default Screen handling
+        // Otherwise, default Screen behaviour (Esc, etc.)
         return super.keyPressed(keyCode, scanCode, modifiers);
     }
 
     @Override
     public boolean charTyped(char codePoint, int modifiers) {
+        // Treat Enter as "send" when the text field is focused
+        if (this.chatInput != null
+                && this.chatInput.isFocused()
+                && (codePoint == '\n' || codePoint == '\r')) {
+
+            this.sendMessage();
+            return true; // consume the Enter character so it doesn't get typed into the box
+        }
+
+        // Otherwise let the EditBox handle regular character input
         if (this.chatInput != null && this.chatInput.charTyped(codePoint, modifiers)) {
             return true;
         }
+
         return super.charTyped(codePoint, modifiers);
     }
 
