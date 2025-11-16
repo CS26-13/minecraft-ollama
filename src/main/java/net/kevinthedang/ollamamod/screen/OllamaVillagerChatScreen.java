@@ -55,6 +55,7 @@ public class OllamaVillagerChatScreen extends Screen {
                 .build());
 
         // chat input
+        //TODO: The Edit Box doesn't correctly submit the message when hitting enter...
         this.chatInput = new EditBox(
                 this.font,
                 startX + 5,
