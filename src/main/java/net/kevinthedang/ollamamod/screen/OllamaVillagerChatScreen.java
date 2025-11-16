@@ -48,31 +48,48 @@ public class OllamaVillagerChatScreen extends Screen {
 
         // back button
         this.backButton = this.addRenderableWidget(Button.builder(
-                        Component.literal("<"),
-                        button -> this.onClose()
-                )
+                Component.literal("<"),
+                button -> this.onClose())
                 .pos(startX + 5, startY + 5)
                 .size(12, 12)
                 .build());
 
-                // chat input
-                this.chatInput = new EditBox(
-                        this.font,
-                        startX + 5,
-                        startY + GUI_HEIGHT - 30,
-                        GUI_WIDTH - 45,
-                        20,
-                        Component.literal("Type your message..."));
-                this.chatInput.setMaxLength(128);
-                this.chatInput.setHint(Component.literal("Type your message..."));
-                this.addRenderableWidget(this.chatInput);
-                this.setInitialFocus(this.chatInput);
+        // chat input
+        this.chatInput = new EditBox(
+                this.font,
+                startX + 5,
+                startY + GUI_HEIGHT - 30,
+                GUI_WIDTH - 45,
+                20,
+                Component.literal("Type your message...")) {
+            @Override
+            public boolean keyPressed(int keyCode, int scanCode, int modifiers) {
+                // Some versions deliver Enter here
+                if (keyCode == GLFW.GLFW_KEY_ENTER || keyCode == GLFW.GLFW_KEY_KP_ENTER) {
+                    OllamaVillagerChatScreen.this.sendMessage();
+                    return true; // consume Enter
+                }
+                return super.keyPressed(keyCode, scanCode, modifiers);
+            }
+
+            @Override
+            public boolean charTyped(char codePoint, int modifiers) {
+                // Some versions deliver Enter as a character (\n or \r)
+                if (codePoint == '\n' || codePoint == '\r') {
+                    OllamaVillagerChatScreen.this.sendMessage();
+                    return true; // don't insert newline into the box
+                }
+                return super.charTyped(codePoint, modifiers);
+            }
+        };
+        this.chatInput.setMaxLength(128);
+        this.chatInput.setHint(Component.literal("Type your message..."));
+        this.addRenderableWidget(this.chatInput);
 
         // send button
         this.sendButton = this.addRenderableWidget(Button.builder(
-                        Component.literal("Send"),
-                        button -> this.sendMessage()
-                )
+                Component.literal("Send"),
+                button -> this.sendMessage())
                 .pos(startX + GUI_WIDTH - 35, startY + GUI_HEIGHT - 30)
                 .size(30, 20)
                 .build());
@@ -240,35 +257,6 @@ public class OllamaVillagerChatScreen extends Screen {
 
         guiGraphics.disableScissor();
     }
-    
-    public boolean keyPressed(int keyCode, int scanCode, int modifiers) {
-        // Let the EditBox handle navigation, backspace, etc.
-        if (this.chatInput != null && this.chatInput.keyPressed(keyCode, scanCode, modifiers)) {
-            return true;
-        }
-
-        // Otherwise, default Screen behaviour (Esc, etc.)
-        return super.keyPressed(keyCode, scanCode, modifiers);
-    }
-
-    @Override
-    public boolean charTyped(char codePoint, int modifiers) {
-        // Treat Enter as "send" when the text field is focused
-        if (this.chatInput != null
-                && this.chatInput.isFocused()
-                && (codePoint == '\n' || codePoint == '\r')) {
-
-            this.sendMessage();
-            return true; // consume the Enter character so it doesn't get typed into the box
-        }
-
-        // Otherwise let the EditBox handle regular character input
-        if (this.chatInput != null && this.chatInput.charTyped(codePoint, modifiers)) {
-            return true;
-        }
-
-        return super.charTyped(codePoint, modifiers);
-    }
 
     @Override
     public void onClose() {
@@ -301,7 +289,8 @@ public class OllamaVillagerChatScreen extends Screen {
     }
 
     private record BubbleRenderData(ChatMessage message,
-                                    List<FormattedCharSequence> lines,
-                                    int bubbleWidth,
-                                    int bubbleHeight) { }
+            List<FormattedCharSequence> lines,
+            int bubbleWidth,
+            int bubbleHeight) {
+    }
 }
