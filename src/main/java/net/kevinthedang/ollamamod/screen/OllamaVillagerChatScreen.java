@@ -22,9 +22,9 @@ public class OllamaVillagerChatScreen extends Screen {
     private EditBox chatInput;
     private Button sendButton;
     private Button backButton;
-    private final List<ChatMessage> chatMessages = new ArrayList<>();
     private double scrollOffset = 0;
     private double maxScroll = 0;
+    private final List<ChatMessage> chatMessages = new ArrayList<>();
 
     // GUI dimensions
     private static final int GUI_WIDTH = 280;
@@ -56,15 +56,15 @@ public class OllamaVillagerChatScreen extends Screen {
                 .build());
 
         // chat input
+        // chat input
         this.chatInput = new EditBox(
                 this.font,
                 startX + 5,
                 startY + GUI_HEIGHT - 30,
                 GUI_WIDTH - 45,
                 20,
-                Component.literal("Type your message...")
-        );
-        this.chatInput.setMaxLength(128); // how many characters do we want to allow?
+                Component.literal("Type your message..."));
+        this.chatInput.setMaxLength(128);
         this.chatInput.setHint(Component.literal("Type your message..."));
         this.addRenderableWidget(this.chatInput);
 
@@ -92,8 +92,12 @@ public class OllamaVillagerChatScreen extends Screen {
         }
 
         this.chatMessages.add(new ChatMessage(Component.literal(message), true));
-        this.scrollOffset = 0;
+
+        // Force view to bottom
+        this.scrollOffset = Double.MAX_VALUE;
+
         this.chatInput.setValue("");
+        this.chatInput.setFocused(true);
     }
 
     @Override
@@ -112,21 +116,11 @@ public class OllamaVillagerChatScreen extends Screen {
 
         this.renderChatHistory(guiGraphics, startX, startY);
 
-        // title - currently broken
-        guiGraphics.drawString(this.font, "Chat with Villager", startX + 30, startY + 10, 0xf50000, false);
+        // Title
+        guiGraphics.drawString(this.font, "Chat with Villager", startX + 30, startY + 10, 0xFFFFFFFF, false);
 
         // render it all
         super.render(guiGraphics, mouseX, mouseY, partialTick);
-    }
-
-    @Override
-    public boolean keyPressed(int keyCode, int scanCode, int modifiers) {
-        if (this.chatInput != null && this.chatInput.isFocused()
-                && (keyCode == GLFW.GLFW_KEY_ENTER || keyCode == GLFW.GLFW_KEY_KP_ENTER)) {
-            this.sendMessage();
-            return true;
-        }
-        return super.keyPressed(keyCode, scanCode, modifiers);
     }
 
     @Override
@@ -137,16 +131,20 @@ public class OllamaVillagerChatScreen extends Screen {
         int chatY = startY + 18;
         int chatWidth = GUI_WIDTH - 10;
         int chatHeight = GUI_HEIGHT - 53;
+
         boolean insideChat = mouseX >= chatX && mouseX <= chatX + chatWidth
                 && mouseY >= chatY && mouseY <= chatY + chatHeight;
 
         if (insideChat) {
             double previous = this.scrollOffset;
-            this.scrollOffset = Math.max(0, Math.min(this.scrollOffset + deltaY * 12.0D, this.maxScroll));
+
+            this.scrollOffset = Math.max(0, Math.min(this.scrollOffset - deltaY * 12.0D, this.maxScroll));
+
             if (previous != this.scrollOffset) {
                 return true;
             }
         }
+
         return super.mouseScrolled(mouseX, mouseY, deltaX, deltaY);
     }
 
@@ -165,9 +163,13 @@ public class OllamaVillagerChatScreen extends Screen {
 
         List<BubbleRenderData> bubbleData = new ArrayList<>();
         int contentHeight = bubbleSpacing;
-        for (int i = this.chatMessages.size() - 1; i >= 0; i--) {
+
+        // Oldest → newest
+        for (int i = 0; i < this.chatMessages.size(); i++) {
             ChatMessage chatMessage = this.chatMessages.get(i);
-            List<FormattedCharSequence> lines = this.font.split(chatMessage.text(), Math.max(20, bubbleMaxWidth - bubblePadding * 2));
+            List<FormattedCharSequence> lines = this.font.split(
+                    chatMessage.text(),
+                    Math.max(20, bubbleMaxWidth - bubblePadding * 2));
 
             int textWidth = 0;
             for (FormattedCharSequence line : lines) {
@@ -176,11 +178,14 @@ public class OllamaVillagerChatScreen extends Screen {
 
             int bubbleHeight = lines.size() * this.font.lineHeight + bubblePadding * 2;
             int bubbleWidth = Math.min(bubbleMaxWidth, textWidth + bubblePadding * 2);
+
             bubbleData.add(new BubbleRenderData(chatMessage, lines, bubbleWidth, bubbleHeight));
             contentHeight += bubbleHeight + bubbleSpacing;
         }
 
+        // Scroll range
         this.maxScroll = Math.max(0, contentHeight - chatHeight);
+
         if (this.scrollOffset > this.maxScroll) {
             this.scrollOffset = this.maxScroll;
         }
@@ -188,11 +193,22 @@ public class OllamaVillagerChatScreen extends Screen {
             this.scrollOffset = 0;
         }
 
-        int cursorY = chatY + chatHeight - bubbleSpacing - (int) Math.round(this.scrollOffset);
+        int cursorY = chatY + bubbleSpacing - (int) Math.round(this.scrollOffset);
+
+        guiGraphics.enableScissor(chatX, chatY, chatX + chatWidth, chatY + chatHeight);
+
         for (BubbleRenderData bubble : bubbleData) {
-            int bubbleTop = cursorY - bubble.bubbleHeight();
+            int bubbleTop = cursorY;
             int bubbleBottom = bubbleTop + bubble.bubbleHeight();
+
+            // Entirely above view: skip but advance cursor
             if (bubbleBottom < chatY) {
+                cursorY = bubbleBottom + bubbleSpacing;
+                continue;
+            }
+
+            // Entirely below view: we’re done
+            if (bubbleTop > chatY + chatHeight) {
                 break;
             }
 
@@ -208,6 +224,7 @@ public class OllamaVillagerChatScreen extends Screen {
 
             int borderColor = bubble.message().fromPlayer() ? PLAYER_BORDER_COLOR : NPC_BORDER_COLOR;
             int fillColor = bubble.message().fromPlayer() ? PLAYER_FILL_COLOR : NPC_FILL_COLOR;
+
             guiGraphics.fill(bubbleLeft - 1, bubbleTop - 1, bubbleRight + 1, bubbleBottom + 1, borderColor);
             guiGraphics.fill(bubbleLeft, bubbleTop, bubbleRight, bubbleBottom, fillColor);
 
@@ -218,8 +235,34 @@ public class OllamaVillagerChatScreen extends Screen {
                 textY += this.font.lineHeight;
             }
 
-            cursorY = bubbleTop - bubbleSpacing;
+            cursorY = bubbleBottom + bubbleSpacing;
         }
+
+        guiGraphics.disableScissor();
+    }
+
+    @Override
+    public boolean keyPressed(int keyCode, int scanCode, int modifiers) {
+        // Give the EditBox first crack at key events
+        if (this.chatInput != null && this.chatInput.keyPressed(keyCode, scanCode, modifiers)) {
+            return true;
+        }
+
+        // Global Enter handler to send the message
+        if (keyCode == GLFW.GLFW_KEY_ENTER || keyCode == GLFW.GLFW_KEY_KP_ENTER) {
+            this.sendMessage();
+            return true;
+        }
+
+        return super.keyPressed(keyCode, scanCode, modifiers);
+    }
+
+    @Override
+    public boolean charTyped(char codePoint, int modifiers) {
+        if (this.chatInput != null && this.chatInput.charTyped(codePoint, modifiers)) {
+            return true;
+        }
+        return super.charTyped(codePoint, modifiers);
     }
 
     @Override
