@@ -243,17 +243,20 @@ public class OllamaVillagerChatScreen extends Screen {
 
     @Override
     public boolean keyPressed(int keyCode, int scanCode, int modifiers) {
-        // Give the EditBox first crack at key events
-        if (this.chatInput != null && this.chatInput.keyPressed(keyCode, scanCode, modifiers)) {
-            return true;
-        }
-
-        // Global Enter handler to send the message
-        if (keyCode == GLFW.GLFW_KEY_ENTER || keyCode == GLFW.GLFW_KEY_KP_ENTER) {
+        // If the input box is focused and Enter was pressed, send the message
+        if (this.chatInput != null
+                && this.chatInput.isFocused()
+                && (keyCode == GLFW.GLFW_KEY_ENTER || keyCode == GLFW.GLFW_KEY_KP_ENTER)) {
             this.sendMessage();
             return true;
         }
 
+        // Then let the EditBox handle other keys (arrows, backspace, etc.)
+        if (this.chatInput != null && this.chatInput.keyPressed(keyCode, scanCode, modifiers)) {
+            return true;
+        }
+
+        // Finally, go back to the default Screen handling
         return super.keyPressed(keyCode, scanCode, modifiers);
     }
 
