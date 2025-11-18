@@ -11,7 +11,7 @@
 5) Right click it -> "Edit Instance" -> Right click the "Minecraft" with the green checkmark -> "Install Forge" (most recent version)
 
 ## Creating an unsigned .jar file manually (Assumed Java is installed) and installing into MultiMC:
-1) Run ./gradelw build in the project repository
+1) Run "./gradelw build" in the project repository
 2) After completion, .jar file is found under repository's /build/libs
 3) In MultiMC's homepage the right side has a button "View Mods", click that and right click the empty space -> click "View Folder"
 4) Copy and paste the .jar file in /build/libs (in our project) into that opened mods folder.
