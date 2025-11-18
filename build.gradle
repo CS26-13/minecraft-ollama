@@ -283,8 +283,6 @@ tasks.register('signJar') {
     description = 'Sign the mod jar using ant.signjar (jarsigner under the hood)'
     group = 'build'
 
-    // Ensure the build runs first so the jar exists before signing
-    dependsOn tasks.named('build')
     onlyIf { keystorePropsFile.exists() }
 
     doLast {
