@@ -55,7 +55,8 @@ public class OllamaVillagerChatScreen extends Screen {
                 .build());
 
         // chat input
-        //TODO: The Edit Box doesn't correctly submit the message when hitting enter...
+        // TODO: Link Enter key into backend NPC response logic
+
         this.chatInput = new EditBox(
                 this.font,
                 startX + 5,
@@ -179,12 +180,22 @@ public class OllamaVillagerChatScreen extends Screen {
         int bubbleSpacing = 4;
         int bubbleMaxWidth = chatWidth - bubbleSpacing * 2;
 
+        // Only render the last 12 messages
+        List<ChatMessage> messagesToRender;
+        if (this.chatMessages.size() > 12) {
+            messagesToRender = this.chatMessages.subList(
+                    this.chatMessages.size() - 12,
+                    this.chatMessages.size()
+            );
+        } else {
+            messagesToRender = this.chatMessages;
+        }
+
+        // Precompute bubble layout for these messages
         List<BubbleRenderData> bubbleData = new ArrayList<>();
         int contentHeight = bubbleSpacing;
 
-        // Oldest → newest
-        for (int i = 0; i < this.chatMessages.size(); i++) {
-            ChatMessage chatMessage = this.chatMessages.get(i);
+        for (ChatMessage chatMessage : messagesToRender) {
             List<FormattedCharSequence> lines = this.font.split(
                     chatMessage.text(),
                     Math.max(20, bubbleMaxWidth - bubblePadding * 2));
@@ -271,23 +282,7 @@ public class OllamaVillagerChatScreen extends Screen {
         return false;
     }
 
-    private static class ChatMessage {
-        private final Component text;
-        private final boolean fromPlayer;
-
-        private ChatMessage(Component text, boolean fromPlayer) {
-            this.text = text;
-            this.fromPlayer = fromPlayer;
-        }
-
-        public Component text() {
-            return this.text;
-        }
-
-        public boolean fromPlayer() {
-            return this.fromPlayer;
-        }
-    }
+    private record ChatMessage(Component text, boolean fromPlayer) {}
 
     private record BubbleRenderData(ChatMessage message,
             List<FormattedCharSequence> lines,
