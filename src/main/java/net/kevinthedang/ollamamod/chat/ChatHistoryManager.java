@@ -16,7 +16,7 @@ public class ChatHistoryManager {
 
     public void append(UUID conversationId, ChatMessage message) {
         Deque<ChatMessage> deque =
-                historyByConversation.computeIfAbsent(conversationId, id -> new ArrayDeque<>());
+                historyByConversation.computeIfAbsent(conversationId, id -> new java.util.concurrent.ConcurrentLinkedDeque<>());
         deque.addLast(message);
         while (deque.size() > MAX_MESSAGES) {
             deque.removeFirst();
