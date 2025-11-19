@@ -29,3 +29,7 @@ forge*changelog.txt
 .DS_Store
 .deploy/*.env
 move_build.sh
+
+# jar Signing secrets
+modsigning.jks
+keystore.properties

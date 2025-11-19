@@ -66,7 +66,6 @@ public class OllamaVillagerChatScreen extends Screen {
                 .size(12, 12)
                 .build());
 
-        // chat input box
         this.chatInput = new EditBox(
                 this.font,
                 startX + 5,
