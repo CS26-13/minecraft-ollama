@@ -37,7 +37,7 @@ public class VillagerChatService {
                     Minecraft mc = Minecraft.getInstance();
                     mc.execute(() -> {
                         if (throwable != null) {
-                            throwable.printStackTrace();
+                            OllamaMod.LOGGER.error("Error getting reply from Ollama for conversation {}", context.conversationId(), throwable);
                             ui.onError("Villager is confused (Ollama error). " +
                                        "Is Ollama running at " + OllamaSettings.baseUrl + "?");
                             return;
