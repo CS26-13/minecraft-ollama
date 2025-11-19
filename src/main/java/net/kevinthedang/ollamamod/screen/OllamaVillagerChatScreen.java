@@ -17,6 +17,8 @@ import net.kevinthedang.ollamamod.chat.VillagerBrain;
 import net.kevinthedang.ollamamod.chat.VillagerChatService;
 import org.lwjgl.glfw.GLFW;
 
+import com.mojang.blaze3d.platform.InputConstants;
+
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
@@ -37,13 +39,12 @@ public class OllamaVillagerChatScreen extends Screen {
     private static final int GUI_WIDTH = 280;
     private static final int GUI_HEIGHT = 170;
 
-    // LLM Bridge
     private final UUID conversationId = UUID.randomUUID();
     private String statusText = "";
     private static final int PLAYER_BORDER_COLOR = 0xFF1F6FE5;
     private static final int PLAYER_FILL_COLOR = 0xCC4AA5FF;
-    private static final int NPC_BORDER_COLOR = 0xFF23924A;
-    private static final int NPC_FILL_COLOR = 0xCC44D36A;
+    private static final int NPC_BORDER_COLOR = 0xFF15582D;
+    private static final int NPC_FILL_COLOR = 0x414BE2;
 
     public OllamaVillagerChatScreen(Screen previousScreen) {
         super(Component.literal("Villager Chat"));
@@ -65,9 +66,7 @@ public class OllamaVillagerChatScreen extends Screen {
                 .size(12, 12)
                 .build());
 
-        // chat input
-        // TODO: Link Enter key into backend NPC response logic
-
+        // chat input box
         this.chatInput = new EditBox(
                 this.font,
                 startX + 5,
@@ -75,10 +74,14 @@ public class OllamaVillagerChatScreen extends Screen {
                 GUI_WIDTH - 45,
                 20,
                 Component.literal("Type your message...")) {
+
             @Override
             public boolean keyPressed(int keyCode, int scanCode, int modifiers) {
+                System.out.println("Screen keyPressed: keyCode=" + keyCode + ", scanCode=" + scanCode);
+
                 // Some versions deliver Enter here
                 if (keyCode == GLFW.GLFW_KEY_ENTER || keyCode == GLFW.GLFW_KEY_KP_ENTER) {
+                    System.out.println("ENTER detected, sending message");
                     OllamaVillagerChatScreen.this.sendMessage();
                     return true; // consume Enter
                 }
@@ -116,7 +119,6 @@ public class OllamaVillagerChatScreen extends Screen {
         }
     }
 
-    // TODO: Implement sendMessage
     private void sendMessage() {
         if (this.minecraft == null) {
             return;
@@ -157,19 +159,20 @@ public class OllamaVillagerChatScreen extends Screen {
             }
         };
 
-        // for context retrieval later
+        // TODO: Implement context retrieval later
         String worldName = this.minecraft.level != null
                 ? this.minecraft.level.dimension().location().toString()
                 : "Unknown";
 
-        VillagerBrain.Context ctx = new VillagerBrain.Context(
+        // For DEMO: Set a generic villager for now
+        VillagerBrain.Context context = new VillagerBrain.Context(
                 conversationId,
                 "Villager",
-                "Unemployed",
+                "Farmer",
                 worldName
         );
 
-        OllamaMod.CHAT_SERVICE.sendPlayerMessage(conversationId, ctx, text, callbacks);
+        OllamaMod.CHAT_SERVICE.sendPlayerMessage(conversationId, context, text, callbacks);
     }
 
     private void appendToChatLog(ChatMessage msg) {
@@ -194,7 +197,7 @@ public class OllamaVillagerChatScreen extends Screen {
         this.renderChatHistory(guiGraphics, startX, startY);
 
         // Title
-        guiGraphics.drawString(this.font, "Chat with Villager", startX + 30, startY + 10, 0xFFFFFFFF, false);
+        guiGraphics.drawString(this.font, "Chat with Villager", startX + 30, startY + 6, 0xFF404040, false);
 
         // render it all
         super.render(guiGraphics, mouseX, mouseY, partialTick);
@@ -239,6 +242,7 @@ public class OllamaVillagerChatScreen extends Screen {
         int bubbleMaxWidth = chatWidth - bubbleSpacing * 2;
 
         // Only render the last 12 messages
+        // TODO: Do we want a better way to handle large histories?
         List<ChatMessageBubble> messagesToRender;
         if (this.chatMessages.size() > 12) {
             messagesToRender = this.chatMessages.subList(

@@ -4,7 +4,7 @@ import java.util.*;
 
 public class ChatHistoryManager {
 
-    private static final int MAX_MESSAGES = 30; // TODO: Determine appropriate limit based on system testing
+    private static final int MAX_MESSAGES = 12; // TODO: Determine appropriate limit based on system testing
 
     private final Map<UUID, Deque<ChatMessage>> historyByConversation = new HashMap<>();
 
