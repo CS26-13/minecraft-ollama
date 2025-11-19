@@ -9,10 +9,19 @@ import net.minecraft.util.FormattedCharSequence;
 import net.minecraftforge.api.distmarker.Dist;
 import net.minecraftforge.api.distmarker.OnlyIn;
 import org.jetbrains.annotations.NotNull;
+
+import net.kevinthedang.ollamamod.OllamaMod;
+import net.kevinthedang.ollamamod.chat.ChatMessage;
+import net.kevinthedang.ollamamod.chat.ChatRole;
+import net.kevinthedang.ollamamod.chat.VillagerBrain;
+import net.kevinthedang.ollamamod.chat.VillagerChatService;
 import org.lwjgl.glfw.GLFW;
+
+import com.mojang.blaze3d.platform.InputConstants;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.UUID;
 
 @OnlyIn(Dist.CLIENT)
 public class OllamaVillagerChatScreen extends Screen {
@@ -24,15 +33,18 @@ public class OllamaVillagerChatScreen extends Screen {
     private Button backButton;
     private double scrollOffset = 0;
     private double maxScroll = 0;
-    private final List<ChatMessage> chatMessages = new ArrayList<>();
+    private final List<ChatMessageBubble> chatMessages = new ArrayList<>();
 
     // GUI dimensions
     private static final int GUI_WIDTH = 280;
     private static final int GUI_HEIGHT = 170;
+
+    private final UUID conversationId = UUID.randomUUID();
+    private String statusText = "";
     private static final int PLAYER_BORDER_COLOR = 0xFF1F6FE5;
-    private static final int PLAYER_FILL_COLOR = 0xCC4AA5FF;
-    private static final int NPC_BORDER_COLOR = 0xFF23924A;
-    private static final int NPC_FILL_COLOR = 0xCC44D36A;
+    private static final int PLAYER_FILL_COLOR = 0x00AAAA;
+    private static final int NPC_BORDER_COLOR = 0xFF15582D;
+    private static final int NPC_FILL_COLOR = 0x00AA00;
 
     public OllamaVillagerChatScreen(Screen previousScreen) {
         super(Component.literal("Villager Chat"));
@@ -54,9 +66,6 @@ public class OllamaVillagerChatScreen extends Screen {
                 .size(12, 12)
                 .build());
 
-        // chat input
-        // TODO: Link Enter key into backend NPC response logic
-
         this.chatInput = new EditBox(
                 this.font,
                 startX + 5,
@@ -64,10 +73,14 @@ public class OllamaVillagerChatScreen extends Screen {
                 GUI_WIDTH - 45,
                 20,
                 Component.literal("Type your message...")) {
+
             @Override
             public boolean keyPressed(int keyCode, int scanCode, int modifiers) {
+                System.out.println("Screen keyPressed: keyCode=" + keyCode + ", scanCode=" + scanCode);
+
                 // Some versions deliver Enter here
                 if (keyCode == GLFW.GLFW_KEY_ENTER || keyCode == GLFW.GLFW_KEY_KP_ENTER) {
+                    System.out.println("ENTER detected, sending message");
                     OllamaVillagerChatScreen.this.sendMessage();
                     return true; // consume Enter
                 }
@@ -96,27 +109,74 @@ public class OllamaVillagerChatScreen extends Screen {
                 .size(30, 20)
                 .build());
 
-        // intput field as focus
+        // input field as focus
         this.setInitialFocus(this.chatInput);
+
+        List<ChatMessage> history = OllamaMod.CHAT_SERVICE.getHistory(conversationId);
+        for (ChatMessage msg : history) {
+            appendToChatLog(msg);
+        }
     }
 
     private void sendMessage() {
+        if (this.minecraft == null) {
+            return;
+        }
+
         if (this.chatInput == null) {
             return;
         }
 
-        String message = this.chatInput.getValue().trim();
-        if (message.isEmpty()) {
+        String text = this.chatInput.getValue().trim();
+        if (text.isEmpty()) {
             return;
         }
 
-        this.chatMessages.add(new ChatMessage(Component.literal(message), true));
-
-        // Force view to bottom
-        this.scrollOffset = Double.MAX_VALUE;
-
         this.chatInput.setValue("");
-        this.chatInput.setFocused(true);
+        this.sendButton.active = false;
+
+        // Add player message to the local log immediately
+        appendToChatLog(new ChatMessage(ChatRole.PLAYER, text));
+
+        VillagerChatService.UiCallbacks callbacks = new VillagerChatService.UiCallbacks() {
+            @Override
+            public void onThinkingStarted() {
+                statusText = "Thinking...";
+            }
+
+            @Override
+            public void onVillagerReplyFinished(String fullText) {
+                statusText = "";
+                sendButton.active = true;
+                appendToChatLog(new ChatMessage(ChatRole.VILLAGER, fullText));
+            }
+
+            @Override
+            public void onError(String errorMessage) {
+                statusText = errorMessage;
+                sendButton.active = true;
+            }
+        };
+
+        // TODO: Implement context retrieval later
+        String worldName = this.minecraft.level != null
+                ? this.minecraft.level.dimension().location().toString()
+                : "Unknown";
+
+        // For DEMO: Set a generic villager for now
+        VillagerBrain.Context context = new VillagerBrain.Context(
+                conversationId,
+                "Villager",
+                "Farmer",
+                worldName
+        );
+
+        OllamaMod.CHAT_SERVICE.sendPlayerMessage(conversationId, context, text, callbacks);
+    }
+
+    private void appendToChatLog(ChatMessage msg) {
+        this.chatMessages.add(toUiMessage(msg));
+        this.scrollOffset = Double.MAX_VALUE;
     }
 
     @Override
@@ -136,7 +196,7 @@ public class OllamaVillagerChatScreen extends Screen {
         this.renderChatHistory(guiGraphics, startX, startY);
 
         // Title
-        guiGraphics.drawString(this.font, "Chat with Villager", startX + 30, startY + 10, 0xFFFFFFFF, false);
+        guiGraphics.drawString(this.font, "Chat with Villager", startX + 30, startY + 6, 0xFF404040, false);
 
         // render it all
         super.render(guiGraphics, mouseX, mouseY, partialTick);
@@ -181,7 +241,8 @@ public class OllamaVillagerChatScreen extends Screen {
         int bubbleMaxWidth = chatWidth - bubbleSpacing * 2;
 
         // Only render the last 12 messages
-        List<ChatMessage> messagesToRender;
+        // TODO: Do we want a better way to handle large histories?
+        List<ChatMessageBubble> messagesToRender;
         if (this.chatMessages.size() > 12) {
             messagesToRender = this.chatMessages.subList(
                     this.chatMessages.size() - 12,
@@ -195,11 +256,11 @@ public class OllamaVillagerChatScreen extends Screen {
         List<BubbleRenderData> bubbleData = new ArrayList<>();
         int contentHeight = bubbleSpacing;
 
-        for (ChatMessage chatMessage : messagesToRender) {
+        // Oldest → newest
+        for (ChatMessageBubble currChatMessage : messagesToRender) {
             List<FormattedCharSequence> lines = this.font.split(
-                    chatMessage.text(),
+                    currChatMessage.text(),
                     Math.max(20, bubbleMaxWidth - bubblePadding * 2));
-
             int textWidth = 0;
             for (FormattedCharSequence line : lines) {
                 textWidth = Math.max(textWidth, this.font.width(line));
@@ -208,7 +269,7 @@ public class OllamaVillagerChatScreen extends Screen {
             int bubbleHeight = lines.size() * this.font.lineHeight + bubblePadding * 2;
             int bubbleWidth = Math.min(bubbleMaxWidth, textWidth + bubblePadding * 2);
 
-            bubbleData.add(new BubbleRenderData(chatMessage, lines, bubbleWidth, bubbleHeight));
+            bubbleData.add(new BubbleRenderData(currChatMessage, lines, bubbleWidth, bubbleHeight));
             contentHeight += bubbleHeight + bubbleSpacing;
         }
 
@@ -281,10 +342,31 @@ public class OllamaVillagerChatScreen extends Screen {
     public boolean isPauseScreen() {
         return false;
     }
+    
+    private static class ChatMessageBubble {
+        private final Component text;
+        private final boolean fromPlayer;
 
-    private record ChatMessage(Component text, boolean fromPlayer) {}
+        private ChatMessageBubble(Component text, boolean fromPlayer) {
+            this.text = text;
+            this.fromPlayer = fromPlayer;
+        }
 
-    private record BubbleRenderData(ChatMessage message,
+        public Component text() {
+            return this.text;
+        }
+
+        public boolean fromPlayer() {
+            return this.fromPlayer;
+        }
+    }
+
+    private ChatMessageBubble toUiMessage(ChatMessage message) {
+        boolean fromPlayer = (message.role() == ChatRole.PLAYER);
+        return new ChatMessageBubble(Component.literal(message.content()), fromPlayer);
+    }
+
+    private record BubbleRenderData(ChatMessageBubble message,
             List<FormattedCharSequence> lines,
             int bubbleWidth,
             int bubbleHeight) {

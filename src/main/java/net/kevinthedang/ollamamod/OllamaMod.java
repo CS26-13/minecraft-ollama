@@ -19,6 +19,10 @@ import net.minecraftforge.fml.javafmlmod.FMLJavaModLoadingContext;
 import net.minecraftforge.registries.ForgeRegistries;
 import org.slf4j.Logger;
 
+import net.kevinthedang.ollamamod.chat.ChatHistoryManager;
+import net.kevinthedang.ollamamod.chat.OllamaVillagerBrain;
+import net.kevinthedang.ollamamod.chat.VillagerBrain;
+import net.kevinthedang.ollamamod.chat.VillagerChatService;
 // The value here should match an entry in the META-INF/mods.toml file
 @Mod(OllamaMod.MOD_ID)
 public final class OllamaMod {
@@ -26,6 +30,11 @@ public final class OllamaMod {
     public static final String MOD_ID = "ollamamod"; // change to use MOD_ID instead of MODID
     // Directly reference a slf4j logger
     public static final Logger LOGGER = LogUtils.getLogger(); // changed to public
+
+    // Global access points for chat/LLM bridge
+    public static final ChatHistoryManager CHAT_HISTORY = new ChatHistoryManager();
+    public static final VillagerBrain VILLAGER_BRAIN = new OllamaVillagerBrain();
+    public static final VillagerChatService CHAT_SERVICE = new VillagerChatService(CHAT_HISTORY, VILLAGER_BRAIN);
 
     public OllamaMod(FMLJavaModLoadingContext context) {
         var modBusGroup = context.getModBusGroup();
