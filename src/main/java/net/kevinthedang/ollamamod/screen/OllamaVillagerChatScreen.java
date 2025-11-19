@@ -42,9 +42,9 @@ public class OllamaVillagerChatScreen extends Screen {
     private final UUID conversationId = UUID.randomUUID();
     private String statusText = "";
     private static final int PLAYER_BORDER_COLOR = 0xFF1F6FE5;
-    private static final int PLAYER_FILL_COLOR = 0xCC4AA5FF;
+    private static final int PLAYER_FILL_COLOR = 0x00AAAA;
     private static final int NPC_BORDER_COLOR = 0xFF15582D;
-    private static final int NPC_FILL_COLOR = 0x414BE2;
+    private static final int NPC_FILL_COLOR = 0x00AA00;
 
     public OllamaVillagerChatScreen(Screen previousScreen) {
         super(Component.literal("Villager Chat"));
@@ -364,18 +364,6 @@ public class OllamaVillagerChatScreen extends Screen {
     private ChatMessageBubble toUiMessage(ChatMessage message) {
         boolean fromPlayer = (message.role() == ChatRole.PLAYER);
         return new ChatMessageBubble(Component.literal(message.content()), fromPlayer);
-    }
-
-    private ChatMessage toDomainMessage(String playerInput) {
-        return new ChatMessage(ChatRole.PLAYER, playerInput);
-    }
-
-    private ChatMessage villagerReply(String text) {
-        return new ChatMessage(ChatRole.VILLAGER, text);
-    }
-
-    private ChatMessage systemMessage(String text) {
-        return new ChatMessage(ChatRole.SYSTEM, text);
     }
 
     private record BubbleRenderData(ChatMessageBubble message,
