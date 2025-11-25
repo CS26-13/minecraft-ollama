@@ -31,6 +31,7 @@ public class OllamaVillagerChatScreen extends Screen {
     private EditBox chatInput;
     private Button sendButton;
     private Button backButton;
+    private Button exitButton;
     private double scrollOffset = 0;
     private double maxScroll = 0;
     private final List<ChatMessageBubble> chatMessages = new ArrayList<>();
@@ -63,6 +64,17 @@ public class OllamaVillagerChatScreen extends Screen {
                 Component.literal("<"),
                 button -> this.onClose())
                 .pos(startX + 5, startY + 5)
+                .size(12, 12)
+                .build());
+
+        // exit button
+        this.exitButton = this.addRenderableWidget(Button.builder(
+                        Component.literal("x"),
+                        button -> {
+                            assert this.minecraft != null;
+                            this.minecraft.setScreen(null); // return to game
+                        })
+                .pos(startX + GUI_WIDTH - 17, startY + 5)
                 .size(12, 12)
                 .build());
 
@@ -135,7 +147,7 @@ public class OllamaVillagerChatScreen extends Screen {
         this.chatInput.setValue("");
         this.sendButton.active = false;
 
-        // Add player message to the local log immediately
+        // Add players' message to the local log immediately
         appendToChatLog(new ChatMessage(ChatRole.PLAYER, text));
 
         VillagerChatService.UiCallbacks callbacks = new VillagerChatService.UiCallbacks() {
@@ -196,7 +208,7 @@ public class OllamaVillagerChatScreen extends Screen {
         this.renderChatHistory(guiGraphics, startX, startY);
 
         // Title
-        guiGraphics.drawString(this.font, "Chat with Villager", startX + 30, startY + 6, 0xFF404040, false);
+        guiGraphics.drawString(this.font, "Chat with Villager", startX + 20, startY + 7, 0xFF404040, false);
 
         // render it all
         super.render(guiGraphics, mouseX, mouseY, partialTick);
