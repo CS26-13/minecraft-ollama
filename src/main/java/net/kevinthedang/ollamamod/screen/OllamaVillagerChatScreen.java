@@ -34,6 +34,7 @@ public class OllamaVillagerChatScreen extends Screen {
     private Button exitButton;
     private double scrollOffset = 0;
     private double maxScroll = 0;
+    private int thinkingBubbleIndex = -1;
     private final List<ChatMessageBubble> chatMessages = new ArrayList<>();
 
     // GUI dimensions
@@ -69,11 +70,11 @@ public class OllamaVillagerChatScreen extends Screen {
 
         // exit button
         this.exitButton = this.addRenderableWidget(Button.builder(
-                        Component.literal("x"),
-                        button -> {
-                            assert this.minecraft != null;
-                            this.minecraft.setScreen(null); // return to game
-                        })
+                Component.literal("x"),
+                button -> {
+                    assert this.minecraft != null;
+                    this.minecraft.setScreen(null); // return to game
+                })
                 .pos(startX + GUI_WIDTH - 17, startY + 5)
                 .size(12, 12)
                 .build());
@@ -153,14 +154,26 @@ public class OllamaVillagerChatScreen extends Screen {
         VillagerChatService.UiCallbacks callbacks = new VillagerChatService.UiCallbacks() {
             @Override
             public void onThinkingStarted() {
-                statusText = "Thinking...";
+                ChatMessage thinkingMsg = new ChatMessage(ChatRole.VILLAGER, "Thinking...");
+                appendToChatLog(thinkingMsg);
+                thinkingBubbleIndex = chatMessages.size() - 1;
             }
 
             @Override
             public void onVillagerReplyFinished(String fullText) {
                 statusText = "";
                 sendButton.active = true;
-                appendToChatLog(new ChatMessage(ChatRole.VILLAGER, fullText));
+                
+                if (thinkingBubbleIndex >= 0 && thinkingBubbleIndex < chatMessages.size()) {
+                    // Replace the "Thinking..." bubble with the real reply
+                    ChatMessage realMsg = new ChatMessage(ChatRole.VILLAGER, fullText);
+                    chatMessages.set(thinkingBubbleIndex, toUiMessage(realMsg));
+                } else {
+                    // Fallback: just append as a new bubble
+                    appendToChatLog(new ChatMessage(ChatRole.VILLAGER, fullText));
+                }
+
+                thinkingBubbleIndex = -1;
             }
 
             @Override
