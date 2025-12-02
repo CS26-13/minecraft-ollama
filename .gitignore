@@ -28,6 +28,7 @@ forge*changelog.txt
 .vscode/
 .DS_Store
 .deploy/*.env
+move_build.sh
 
 # jar Signing secrets
 modsigning.jks
