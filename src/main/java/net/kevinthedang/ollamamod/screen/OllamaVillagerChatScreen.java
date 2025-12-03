@@ -36,6 +36,7 @@ public class OllamaVillagerChatScreen extends Screen {
     private double maxScroll = 0;
     private int thinkingBubbleIndex = -1;
     private final List<ChatMessageBubble> chatMessages = new ArrayList<>();
+    private final StringBuilder streamingReplyBuffer = new StringBuilder();
 
     // GUI dimensions
     private static final int GUI_WIDTH = 280;
@@ -154,25 +155,30 @@ public class OllamaVillagerChatScreen extends Screen {
         VillagerChatService.UiCallbacks callbacks = new VillagerChatService.UiCallbacks() {
             @Override
             public void onThinkingStarted() {
+                streamingReplyBuffer.setLength(0); // reset
                 ChatMessage thinkingMsg = new ChatMessage(ChatRole.VILLAGER, "Thinking...");
                 appendToChatLog(thinkingMsg);
                 thinkingBubbleIndex = chatMessages.size() - 1;
             }
 
             @Override
+            public void onVillagerReplyDelta(String delta) {
+                streamingReplyBuffer.append(delta);
+                updateThinkingBubble(streamingReplyBuffer.toString());
+            }
+
+            @Override
             public void onVillagerReplyFinished(String fullText) {
                 statusText = "";
                 sendButton.active = true;
-                
+
                 if (thinkingBubbleIndex >= 0 && thinkingBubbleIndex < chatMessages.size()) {
-                    // Replace the "Thinking..." bubble with the real reply
-                    ChatMessage realMsg = new ChatMessage(ChatRole.VILLAGER, fullText);
-                    chatMessages.set(thinkingBubbleIndex, toUiMessage(realMsg));
+                    updateThinkingBubble(fullText);
                 } else {
-                    // Fallback: just append as a new bubble
                     appendToChatLog(new ChatMessage(ChatRole.VILLAGER, fullText));
                 }
 
+                streamingReplyBuffer.setLength(0);
                 thinkingBubbleIndex = -1;
             }
 
@@ -180,6 +186,10 @@ public class OllamaVillagerChatScreen extends Screen {
             public void onError(String errorMessage) {
                 statusText = errorMessage;
                 sendButton.active = true;
+
+                if (thinkingBubbleIndex >= 0 && thinkingBubbleIndex < chatMessages.size()) {
+                    updateThinkingBubble("Error: " + errorMessage);
+                }
             }
         };
 
@@ -196,7 +206,7 @@ public class OllamaVillagerChatScreen extends Screen {
                 worldName
         );
 
-        OllamaMod.CHAT_SERVICE.sendPlayerMessage(conversationId, context, text, callbacks);
+        OllamaMod.CHAT_SERVICE.sendPlayerMessage(conversationId, context, text, callbacks, true);
     }
 
     private void appendToChatLog(ChatMessage msg) {
@@ -369,7 +379,7 @@ public class OllamaVillagerChatScreen extends Screen {
     }
     
     private static class ChatMessageBubble {
-        private final Component text;
+        private Component text;
         private final boolean fromPlayer;
 
         private ChatMessageBubble(Component text, boolean fromPlayer) {
@@ -384,7 +394,19 @@ public class OllamaVillagerChatScreen extends Screen {
         public boolean fromPlayer() {
             return this.fromPlayer;
         }
+
+        public void setText(Component newText) {
+            this.text = newText;
+        }
     }
+
+    private void updateThinkingBubble(String newText) {
+    if (thinkingBubbleIndex >= 0 && thinkingBubbleIndex < chatMessages.size()) {
+        ChatMessageBubble bubble = chatMessages.get(thinkingBubbleIndex);
+        bubble.setText(Component.literal(newText));
+        this.scrollOffset = Double.MAX_VALUE;
+    }
+}
 
     private ChatMessageBubble toUiMessage(ChatMessage message) {
         boolean fromPlayer = (message.role() == ChatRole.PLAYER);
