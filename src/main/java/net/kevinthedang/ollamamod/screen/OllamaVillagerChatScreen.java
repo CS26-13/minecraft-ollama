@@ -35,6 +35,8 @@ public class OllamaVillagerChatScreen extends Screen {
     private double scrollOffset = 0;
     private double maxScroll = 0;
     private int thinkingBubbleIndex = -1;
+    private boolean isStreaming = false;
+    private long streamGeneration = 0;
     private final List<ChatMessageBubble> chatMessages = new ArrayList<>();
     private final StringBuilder streamingReplyBuffer = new StringBuilder();
 
@@ -118,7 +120,13 @@ public class OllamaVillagerChatScreen extends Screen {
         // send button
         this.sendButton = this.addRenderableWidget(Button.builder(
                 Component.literal("Send"),
-                button -> this.sendMessage())
+                button -> {
+                    if (isStreaming) {
+                        cancelCurrentStream();
+                    } else {
+                        sendMessage();
+                    }
+                })
                 .pos(startX + GUI_WIDTH - 35, startY + GUI_HEIGHT - 30)
                 .size(30, 20)
                 .build());
@@ -141,21 +149,40 @@ public class OllamaVillagerChatScreen extends Screen {
             return;
         }
 
+        if (isStreaming) {
+            return;
+        }
+
         String text = this.chatInput.getValue().trim();
         if (text.isEmpty()) {
             return;
         }
 
         this.chatInput.setValue("");
-        this.sendButton.active = false;
+
+        // start streaming
+        streamGeneration++;
+        final long myStreamId = streamGeneration;
+        isStreaming = true;
+        streamingReplyBuffer.setLength(0);
+
+        // button + input state
+        this.sendButton.setMessage(Component.literal("Stop"));
+        this.sendButton.active = true; // keep clickable to allow stopping
+        this.chatInput.setEditable(false);
 
         // Add players' message to the local log immediately
         appendToChatLog(new ChatMessage(ChatRole.PLAYER, text));
 
         VillagerChatService.UiCallbacks callbacks = new VillagerChatService.UiCallbacks() {
+            private final long id = myStreamId;
+
             @Override
             public void onThinkingStarted() {
-                streamingReplyBuffer.setLength(0); // reset
+                if (!isCurrentStream(id)) {
+                    return;
+                }
+
                 ChatMessage thinkingMsg = new ChatMessage(ChatRole.VILLAGER, "Thinking...");
                 appendToChatLog(thinkingMsg);
                 thinkingBubbleIndex = chatMessages.size() - 1;
@@ -163,14 +190,27 @@ public class OllamaVillagerChatScreen extends Screen {
 
             @Override
             public void onVillagerReplyDelta(String delta) {
+                if (!isCurrentStream(id)) {
+                    return;
+                }
+
                 streamingReplyBuffer.append(delta);
                 updateThinkingBubble(streamingReplyBuffer.toString());
             }
 
             @Override
             public void onVillagerReplyFinished(String fullText) {
+                if (!isCurrentStream(id)) {
+                    return;
+                }
+
                 statusText = "";
+                isStreaming = false;
+                sendButton.setMessage(Component.literal("Send"));
                 sendButton.active = true;
+                if (chatInput != null) {
+                    chatInput.setEditable(true);
+                }
 
                 if (thinkingBubbleIndex >= 0 && thinkingBubbleIndex < chatMessages.size()) {
                     updateThinkingBubble(fullText);
@@ -184,8 +224,17 @@ public class OllamaVillagerChatScreen extends Screen {
 
             @Override
             public void onError(String errorMessage) {
+                if (!isCurrentStream(id)) {
+                    return;
+                }
+
                 statusText = errorMessage;
+                isStreaming = false;
+                sendButton.setMessage(Component.literal("Send"));
                 sendButton.active = true;
+                if (chatInput != null) {
+                    chatInput.setEditable(true);
+                }
 
                 if (thinkingBubbleIndex >= 0 && thinkingBubbleIndex < chatMessages.size()) {
                     updateThinkingBubble("Error: " + errorMessage);
@@ -417,5 +466,26 @@ public class OllamaVillagerChatScreen extends Screen {
             List<FormattedCharSequence> lines,
             int bubbleWidth,
             int bubbleHeight) {
+    }
+
+    private boolean isCurrentStream(long id) {
+        return id == this.streamGeneration;
+    }
+
+    private void cancelCurrentStream() {
+        // bump generation so any late callbacks from this stream are ignored
+        this.streamGeneration++;
+        this.isStreaming = false;
+
+        this.streamingReplyBuffer.setLength(0);
+        this.thinkingBubbleIndex = -1;
+
+        this.sendButton.setMessage(Component.literal("Send"));
+        this.sendButton.active = true;
+        if (this.chatInput != null) {
+            this.chatInput.setEditable(true);
+        }
+
+        this.statusText = "Stopped.";
     }
 }
