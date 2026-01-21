@@ -21,7 +21,8 @@ import org.slf4j.Logger;
 
 import net.kevinthedang.ollamamod.chat.ChatHistoryManager;
 import net.kevinthedang.ollamamod.chat.OllamaVillagerBrain;
-import net.kevinthedang.ollamamod.chat.VillagerBrain;
+// import net.kevinthedang.ollamamod.chat.VillagerBrain;
+import net.kevinthedang.ollamamod.chat.AgenticRagVillagerBrain;
 import net.kevinthedang.ollamamod.chat.VillagerChatService;
 // The value here should match an entry in the META-INF/mods.toml file
 @Mod(OllamaMod.MOD_ID)
@@ -33,7 +34,7 @@ public final class OllamaMod {
 
     // Global access points for chat/LLM bridge
     public static final ChatHistoryManager CHAT_HISTORY = new ChatHistoryManager();
-    public static final VillagerBrain VILLAGER_BRAIN = new OllamaVillagerBrain();
+    public static final AgenticRagVillagerBrain VILLAGER_BRAIN = new AgenticRagVillagerBrain();
     public static final VillagerChatService CHAT_SERVICE = new VillagerChatService(CHAT_HISTORY, VILLAGER_BRAIN);
 
     public OllamaMod(FMLJavaModLoadingContext context) {
