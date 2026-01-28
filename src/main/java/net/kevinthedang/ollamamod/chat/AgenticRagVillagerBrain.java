@@ -19,25 +19,18 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 
-/**
- * Agentic (router-driven) context + prompt composer, then stream the final answer.
- *
- * This class is intentionally "M3-safe": it always injects >=3 world facts and keeps
- * the existing UI + streaming flow unchanged.
- */
 public class AgenticRagVillagerBrain implements VillagerBrain {
 
     private final HttpClient client;
     private final URI chatUri;
     private final Gson gson = new Gson();
 
-    // M3 components (rule-based, cheap, deterministic)
     private final RouterPolicy router;
     private final WorldContextTool worldContextTool;
     private final PromptComposer promptComposer;
 
     public AgenticRagVillagerBrain() {
-        this(new RuleBasedRouterPolicy(), new BasicWorldContextTool(), new PromptComposerV1());
+        this(new RuleBasedRouterPolicy(), new ForgeWorldContextTool(), new PromptComposerV1());
     }
 
     public AgenticRagVillagerBrain(RouterPolicy router, WorldContextTool worldContextTool, PromptComposer promptComposer) {
@@ -89,7 +82,6 @@ public class AgenticRagVillagerBrain implements VillagerBrain {
 
     @Override
     public void getReplyStreaming(Context context, List<ChatMessage> history, String playerMessage, StreamCallbacks callbacks) {
-        // M3: only the final answer streams.
         RoutePlan plan = router.plan(context, history, playerMessage);
         WorldFactBundle worldFacts = plan.useWorld() ? worldContextTool.collect(context, history, playerMessage)
                 : WorldFactBundle.empty();
@@ -100,6 +92,9 @@ public class AgenticRagVillagerBrain implements VillagerBrain {
                 playerMessage,
                 worldFacts
         );
+        // Debug logging
+        System.out.println("[AgenticRAG] facts=" + worldFacts.facts().size()
+    + " first=" + (worldFacts.facts().isEmpty() ? "none" : worldFacts.facts().get(0).factText()));
 
         Map<String, Object> requestBody = new HashMap<>();
         requestBody.put("model", OllamaSettings.model);

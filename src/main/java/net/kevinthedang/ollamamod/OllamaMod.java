@@ -20,8 +20,6 @@ import net.minecraftforge.registries.ForgeRegistries;
 import org.slf4j.Logger;
 
 import net.kevinthedang.ollamamod.chat.ChatHistoryManager;
-import net.kevinthedang.ollamamod.chat.OllamaVillagerBrain;
-// import net.kevinthedang.ollamamod.chat.VillagerBrain;
 import net.kevinthedang.ollamamod.chat.AgenticRagVillagerBrain;
 import net.kevinthedang.ollamamod.chat.VillagerChatService;
 // The value here should match an entry in the META-INF/mods.toml file

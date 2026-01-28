@@ -10,7 +10,6 @@ public record RoutePlan(
         int depth
 ) {
     public static RoutePlan phase1Default() {
-        // M3 and M4: world facts only.
         return new RoutePlan(true, false, false, 0);
     }
 }

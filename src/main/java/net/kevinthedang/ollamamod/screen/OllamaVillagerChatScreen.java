@@ -16,6 +16,11 @@ import net.kevinthedang.ollamamod.chat.ChatRole;
 import net.kevinthedang.ollamamod.chat.VillagerBrain;
 import net.kevinthedang.ollamamod.chat.VillagerChatService;
 import org.lwjgl.glfw.GLFW;
+import net.minecraft.world.entity.Entity;
+import net.minecraft.world.entity.npc.Villager;
+import net.minecraft.world.phys.AABB;
+
+import java.util.Comparator;
 
 import com.mojang.blaze3d.platform.InputConstants;
 
@@ -44,7 +49,11 @@ public class OllamaVillagerChatScreen extends Screen {
     private static final int GUI_WIDTH = 280;
     private static final int GUI_HEIGHT = 170;
 
-    private final UUID conversationId = UUID.randomUUID();
+    private UUID conversationId;
+
+    private String villagerName = "Villager";
+    private String villagerProfession = "Unknown";
+    private Integer villagerEntityId = null;
     private String statusText = "";
     private static final int PLAYER_BORDER_COLOR = 0xFF1F6FE5;
     private static final int PLAYER_FILL_COLOR = 0x00AAAA;
@@ -52,8 +61,13 @@ public class OllamaVillagerChatScreen extends Screen {
     private static final int NPC_FILL_COLOR = 0x00AA00;
 
     public OllamaVillagerChatScreen(Screen previousScreen) {
+    this(previousScreen, null);
+    }
+
+    public OllamaVillagerChatScreen(Screen previousScreen, Integer villagerEntityId) {
         super(Component.literal("Villager Chat"));
         this.previousScreen = previousScreen;
+        this.villagerEntityId = villagerEntityId;
     }
 
     @Override
@@ -134,10 +148,35 @@ public class OllamaVillagerChatScreen extends Screen {
         // input field as focus
         this.setInitialFocus(this.chatInput);
 
+        ensurePersonaResolved();
+
         List<ChatMessage> history = OllamaMod.CHAT_SERVICE.getHistory(conversationId);
         for (ChatMessage msg : history) {
             appendToChatLog(msg);
         }
+    }
+
+    private Villager findNearestVillager() {
+        if (minecraft == null || minecraft.player == null || minecraft.level == null) return null;
+
+        var player = minecraft.player;
+        var level = minecraft.level;
+
+        var aabb = player.getBoundingBox().inflate(6.0);
+
+        var list = level.getEntitiesOfClass(net.minecraft.world.entity.npc.Villager.class, aabb);
+        if (list.isEmpty()) return null;
+
+        net.minecraft.world.entity.npc.Villager best = null;
+        double bestDist = Double.MAX_VALUE;
+        for (var v : list) {
+            double d = v.distanceToSqr(player);
+            if (d < bestDist) {
+                bestDist = d;
+                best = v;
+            }
+        }
+        return best;
     }
 
     private void sendMessage() {
@@ -242,16 +281,23 @@ public class OllamaVillagerChatScreen extends Screen {
             }
         };
 
-        // TODO: Implement context retrieval later
+        // World/dimension name
         String worldName = this.minecraft.level != null
                 ? this.minecraft.level.dimension().location().toString()
                 : "Unknown";
 
-        // For DEMO: Set a generic villager for now
+        ensurePersonaResolved();
+
+        Villager v = findNearestVillager();
+        String villagerName = (v != null) ? v.getName().getString() : "Villager";
+        String profession = (v != null) ? prettyProfession(v) : "Unknown";
+
+        UUID conversationId = (v != null) ? v.getUUID() : UUID.randomUUID();
+
         VillagerBrain.Context context = new VillagerBrain.Context(
                 conversationId,
-                "Villager",
-                "Farmer",
+                villagerName,
+                profession,
                 worldName
         );
 
@@ -340,7 +386,7 @@ public class OllamaVillagerChatScreen extends Screen {
         List<BubbleRenderData> bubbleData = new ArrayList<>();
         int contentHeight = bubbleSpacing;
 
-        // Oldest → newest
+        // Oldest -> newest
         for (ChatMessageBubble currChatMessage : messagesToRender) {
             List<FormattedCharSequence> lines = this.font.split(
                     currChatMessage.text(),
@@ -450,12 +496,12 @@ public class OllamaVillagerChatScreen extends Screen {
     }
 
     private void updateThinkingBubble(String newText) {
-    if (thinkingBubbleIndex >= 0 && thinkingBubbleIndex < chatMessages.size()) {
-        ChatMessageBubble bubble = chatMessages.get(thinkingBubbleIndex);
-        bubble.setText(Component.literal(newText));
-        this.scrollOffset = Double.MAX_VALUE;
+        if (thinkingBubbleIndex >= 0 && thinkingBubbleIndex < chatMessages.size()) {
+            ChatMessageBubble bubble = chatMessages.get(thinkingBubbleIndex);
+            bubble.setText(Component.literal(newText));
+            this.scrollOffset = Double.MAX_VALUE;
+        }
     }
-}
 
     private ChatMessageBubble toUiMessage(ChatMessage message) {
         boolean fromPlayer = (message.role() == ChatRole.PLAYER);
@@ -487,5 +533,92 @@ public class OllamaVillagerChatScreen extends Screen {
         }
 
         this.statusText = "Stopped.";
+    }
+
+    private void ensurePersonaResolved() {
+        if (this.conversationId != null && this.villagerEntityId != null) {
+            // still refresh name/profession in case they changed
+            Villager v = resolveVillagerFromId(this.villagerEntityId);
+            if (v != null) {
+                this.villagerName = resolveName(v);
+                this.villagerProfession = prettyProfession(v);
+            }
+            return;
+        }
+
+        if (this.minecraft == null || this.minecraft.level == null || this.minecraft.player == null) {
+            if (this.conversationId == null) this.conversationId = UUID.randomUUID();
+            return;
+        }
+
+        Villager villager = null;
+
+        if (this.villagerEntityId != null) {
+            villager = resolveVillagerFromId(this.villagerEntityId);
+        }
+
+        if (villager == null) {
+            villager = findNearestVillager(6.5);
+        }
+
+        if (villager != null) {
+            this.villagerEntityId = villager.getId();
+            this.conversationId = villager.getUUID(); // stable per villager
+            this.villagerName = resolveName(villager);
+            this.villagerProfession = prettyProfession(villager);
+        }
+
+        if (this.conversationId == null) {
+            this.conversationId = UUID.randomUUID();
+        }
+    }
+
+    private Villager resolveVillagerFromId(int entityId) {
+        if (this.minecraft == null || this.minecraft.level == null) return null;
+        Entity e = this.minecraft.level.getEntity(entityId);
+        if (e instanceof Villager v) return v;
+        return null;
+    }
+
+    private Villager findNearestVillager(double radiusBlocks) {
+        if (this.minecraft == null || this.minecraft.level == null || this.minecraft.player == null) return null;
+
+        AABB box = this.minecraft.player.getBoundingBox().inflate(radiusBlocks);
+        List<Villager> villagers = this.minecraft.level.getEntitiesOfClass(Villager.class, box);
+        if (villagers == null || villagers.isEmpty()) return null;
+
+        return villagers.stream()
+                .min(Comparator.comparingDouble(v -> v.distanceToSqr(this.minecraft.player)))
+                .orElse(null);
+    }
+
+    private static String resolveName(Villager v) {
+        if (v == null) return "Villager";
+        if (v.hasCustomName()) {
+            return v.getCustomName() == null ? "Villager" : v.getCustomName().getString();
+        }
+        // getName() usually returns "Villager" unless customized, but is safe.
+        return v.getName().getString();
+    }
+
+    private static String prettyProfession(Villager v) {
+        if (v == null) return "Unknown";
+
+        String vd = String.valueOf(v.getVillagerData());
+        String lower = vd.toLowerCase();
+
+        int idx = lower.indexOf("profession=");
+        if (idx < 0) return "Unknown";
+
+        int start = idx + "profession=".length();
+        int end = lower.indexOf(",", start);
+        if (end < 0) end = lower.indexOf("]", start);
+        if (end < 0) end = vd.length();
+
+        String raw = vd.substring(start, end).trim();
+        if (raw.contains(":")) raw = raw.substring(raw.indexOf(":") + 1);
+
+        if (raw.isEmpty()) return "Unknown";
+        return Character.toUpperCase(raw.charAt(0)) + raw.substring(1);
     }
 }

@@ -4,8 +4,6 @@ import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 
-// TODO: Implement LLM Bridge here
-
 public interface VillagerBrain {
 
     record Context(

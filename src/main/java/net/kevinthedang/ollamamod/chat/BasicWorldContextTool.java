@@ -4,12 +4,6 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 
-/**
- * For M3: implementation that guarantees >=3 injected facts per turn.
- *
- * This does NOT query Minecraft APIs yet (coords/biome/etc). It only uses the
- * information already available in VillagerBrain.Context + history size.
- */
 public class BasicWorldContextTool implements WorldContextTool {
 
     @Override
@@ -40,7 +34,7 @@ public class BasicWorldContextTool implements WorldContextTool {
                 30_000
         ));
 
-        // Additional cheap, useful facts (helps grounding + debugging)
+        // Additional facts
         facts.add(new WorldFact(
                 "Conversation ID: " + ctx.conversationId(),
                 "context.conversationId",

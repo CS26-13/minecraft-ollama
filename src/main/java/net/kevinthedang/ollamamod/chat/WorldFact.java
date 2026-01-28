@@ -10,4 +10,8 @@ public record WorldFact(
         String evidence,
         double confidence,
         long ttlMillis
-) { }
+) { 
+        public static WorldFact of(String factText, String evidence, double confidence) {
+        return new WorldFact(factText, evidence, confidence, 0);
+        }
+}
