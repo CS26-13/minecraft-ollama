@@ -33,3 +33,4 @@ move_build.sh
 # jar Signing secrets
 modsigning.jks
 keystore.properties
+AGENTS.md
