@@ -4,6 +4,7 @@ import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.gui.components.Button;
 import net.minecraft.client.gui.components.EditBox;
 import net.minecraft.client.gui.screens.Screen;
+import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.network.chat.Component;
 import net.minecraft.util.FormattedCharSequence;
 import net.minecraftforge.api.distmarker.Dist;
@@ -603,22 +604,16 @@ public class OllamaVillagerChatScreen extends Screen {
 
     private static String prettyProfession(Villager v) {
         if (v == null) return "Unknown";
-
-        String vd = String.valueOf(v.getVillagerData());
-        String lower = vd.toLowerCase();
-
-        int idx = lower.indexOf("profession=");
-        if (idx < 0) return "Unknown";
-
-        int start = idx + "profession=".length();
-        int end = lower.indexOf(",", start);
-        if (end < 0) end = lower.indexOf("]", start);
-        if (end < 0) end = vd.length();
-
-        String raw = vd.substring(start, end).trim();
-        if (raw.contains(":")) raw = raw.substring(raw.indexOf(":") + 1);
-
-        if (raw.isEmpty()) return "Unknown";
-        return Character.toUpperCase(raw.charAt(0)) + raw.substring(1);
+        try {
+            var holder = v.getVillagerData().profession(); // Holder<VillagerProfession>
+            var profession = holder.value();
+            var key = BuiltInRegistries.VILLAGER_PROFESSION.getKey(profession);
+            if (key == null) return "Unknown";
+            String raw = key.getPath(); // "farmer"
+            if (raw.isEmpty()) return "Unknown";
+            return Character.toUpperCase(raw.charAt(0)) + raw.substring(1);
+        } catch (Throwable t) {
+            return "Unknown";
+        }
     }
 }

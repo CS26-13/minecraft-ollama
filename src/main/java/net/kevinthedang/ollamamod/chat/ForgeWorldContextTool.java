@@ -121,11 +121,16 @@ public class ForgeWorldContextTool implements WorldContextTool {
 
             if (e instanceof Villager v) {
                 villagers++;
-                String vd = String.valueOf(v.getVillagerData());
-                String prof = parseVillagerDataField(vd, "profession", "unknown");
-                String vtype = parseVillagerDataField(vd, "type", "unknown");
+                String prof = villagerProfessionId(v);
+                String vtype = villagerTypeId(v);
                 villagerProf.merge(prof, 1, Integer::sum);
                 villagerType.merge(vtype, 1, Integer::sum);
+
+                System.out.println("[ForgeWorldContextTool] villager="
+                    + v.getUUID()
+                    + " prof=" + prof
+                    + " type=" + vtype
+                    + " data=" + v.getVillagerData());
             }
         }
 
@@ -147,6 +152,28 @@ public class ForgeWorldContextTool implements WorldContextTool {
         return out;
     }
 
+    private static String villagerProfessionId(Villager v) {
+        try {
+            var holder = v.getVillagerData().profession(); // Holder<VillagerProfession>
+            var profession = holder.value();
+            var key = BuiltInRegistries.VILLAGER_PROFESSION.getKey(profession);
+            return key == null ? "unknown" : key.getPath(); // e.g. "farmer"
+        } catch (Throwable t) {
+            return "unknown";
+        }
+}
+
+    private static String villagerTypeId(Villager v) {
+        try {
+            var holder = v.getVillagerData().type(); // Holder<VillagerType>
+            var type = holder.value();
+            var key = BuiltInRegistries.VILLAGER_TYPE.getKey(type);
+            return key == null ? "unknown" : key.getPath(); // e.g. "plains"
+        } catch (Throwable t) {
+            return "unknown";
+        }
+    }
+    
     private static List<WorldFact> queryNearbyBlocks(Level level, BlockPos center, int radius) {
         List<WorldFact> out = new ArrayList<>();
 
