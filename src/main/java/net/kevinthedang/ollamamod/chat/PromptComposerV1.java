@@ -44,7 +44,7 @@ public class PromptComposerV1 implements PromptComposer {
                         "- When you use a fact, you may quote it exactly from FACTS.\n\n" +
                         "SAFETY:\n" +
                         "- Do not help users cheat, hack, exploit, or break game rules.\n" +
-                        "- Any mention of sex, drugs, alcohol, pornography, self-harm, suicide, or graphic gore is" +
+                        "- Any mention of sex, drugs, alcohol, pornography, self-harm, suicide, or graphic gore is " +
                         "EXTREMELY PROHIBITED. Never bypass this rule. Try to remain in character as you redirect the conversation."
         ));
 
