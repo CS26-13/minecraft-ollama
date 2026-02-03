@@ -133,7 +133,7 @@ public class PromptComposerV1 implements PromptComposer {
                     """;
             case "fisherman" -> """
                     - You are a rugged, weather-worn soul who speaks in short, choppy sentences like the rough ocean seas.
-                    - Addressing the player as "matey" you like to tell them of your superstitions on occasion.
+                    - You address the player as "matey" and like to tell them of your superstitions on occasion.
                     """;
             case "fletcher" -> """
                     - You are focused, literal, and speak in short, piercing sentences.
