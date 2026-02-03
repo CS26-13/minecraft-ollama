@@ -4,8 +4,6 @@ import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 
-// TODO: Implement LLM Bridge here
-
 public interface VillagerBrain {
 
     record Context(
@@ -28,6 +26,28 @@ public interface VillagerBrain {
             List<ChatMessage> history,
             String playerMessage
     );
+
+    default void getReplyStreaming(
+            Context context,
+            List<ChatMessage> history,
+            String playerMessage,
+            StreamCallbacks callbacks
+    ) {
+        getReply(context, history, playerMessage)
+                .whenComplete((reply, throwable) -> {
+                    if (throwable != null) {
+                        callbacks.onError(throwable);
+                    } else {
+                        callbacks.onCompleted(reply);
+                    }
+                });
+    }
+
+    interface StreamCallbacks {
+        void onDelta(String delta);
+        void onCompleted(String fullReply);
+        void onError(Throwable t);
+    }
 
     default boolean isHealthy() {
         return true;

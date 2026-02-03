@@ -4,6 +4,7 @@ import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.gui.components.Button;
 import net.minecraft.client.gui.components.EditBox;
 import net.minecraft.client.gui.screens.Screen;
+import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.network.chat.Component;
 import net.minecraft.util.FormattedCharSequence;
 import net.minecraftforge.api.distmarker.Dist;
@@ -16,6 +17,11 @@ import net.kevinthedang.ollamamod.chat.ChatRole;
 import net.kevinthedang.ollamamod.chat.VillagerBrain;
 import net.kevinthedang.ollamamod.chat.VillagerChatService;
 import org.lwjgl.glfw.GLFW;
+import net.minecraft.world.entity.Entity;
+import net.minecraft.world.entity.npc.Villager;
+import net.minecraft.world.phys.AABB;
+
+import java.util.Comparator;
 
 import com.mojang.blaze3d.platform.InputConstants;
 
@@ -35,13 +41,20 @@ public class OllamaVillagerChatScreen extends Screen {
     private double scrollOffset = 0;
     private double maxScroll = 0;
     private int thinkingBubbleIndex = -1;
+    private boolean isStreaming = false;
+    private long streamGeneration = 0;
     private final List<ChatMessageBubble> chatMessages = new ArrayList<>();
+    private final StringBuilder streamingReplyBuffer = new StringBuilder();
 
     // GUI dimensions
     private static final int GUI_WIDTH = 280;
     private static final int GUI_HEIGHT = 170;
 
-    private final UUID conversationId = UUID.randomUUID();
+    private UUID conversationId;
+
+    private String villagerName = "Villager";
+    private String villagerProfession = "Unknown";
+    private Integer villagerEntityId = null;
     private String statusText = "";
     private static final int PLAYER_BORDER_COLOR = 0xFF1F6FE5;
     private static final int PLAYER_FILL_COLOR = 0x00AAAA;
@@ -49,8 +62,13 @@ public class OllamaVillagerChatScreen extends Screen {
     private static final int NPC_FILL_COLOR = 0x00AA00;
 
     public OllamaVillagerChatScreen(Screen previousScreen) {
+    this(previousScreen, null);
+    }
+
+    public OllamaVillagerChatScreen(Screen previousScreen, Integer villagerEntityId) {
         super(Component.literal("Villager Chat"));
         this.previousScreen = previousScreen;
+        this.villagerEntityId = villagerEntityId;
     }
 
     @Override
@@ -117,7 +135,13 @@ public class OllamaVillagerChatScreen extends Screen {
         // send button
         this.sendButton = this.addRenderableWidget(Button.builder(
                 Component.literal("Send"),
-                button -> this.sendMessage())
+                button -> {
+                    if (isStreaming) {
+                        cancelCurrentStream();
+                    } else {
+                        sendMessage();
+                    }
+                })
                 .pos(startX + GUI_WIDTH - 35, startY + GUI_HEIGHT - 30)
                 .size(30, 20)
                 .build());
@@ -125,10 +149,35 @@ public class OllamaVillagerChatScreen extends Screen {
         // input field as focus
         this.setInitialFocus(this.chatInput);
 
+        ensurePersonaResolved();
+
         List<ChatMessage> history = OllamaMod.CHAT_SERVICE.getHistory(conversationId);
         for (ChatMessage msg : history) {
             appendToChatLog(msg);
         }
+    }
+
+    private Villager findNearestVillager() {
+        if (minecraft == null || minecraft.player == null || minecraft.level == null) return null;
+
+        var player = minecraft.player;
+        var level = minecraft.level;
+
+        var aabb = player.getBoundingBox().inflate(6.0);
+
+        var list = level.getEntitiesOfClass(net.minecraft.world.entity.npc.Villager.class, aabb);
+        if (list.isEmpty()) return null;
+
+        net.minecraft.world.entity.npc.Villager best = null;
+        double bestDist = Double.MAX_VALUE;
+        for (var v : list) {
+            double d = v.distanceToSqr(player);
+            if (d < bestDist) {
+                bestDist = d;
+                best = v;
+            }
+        }
+        return best;
     }
 
     private void sendMessage() {
@@ -140,63 +189,120 @@ public class OllamaVillagerChatScreen extends Screen {
             return;
         }
 
+        if (isStreaming) {
+            return;
+        }
+
         String text = this.chatInput.getValue().trim();
         if (text.isEmpty()) {
             return;
         }
 
         this.chatInput.setValue("");
-        this.sendButton.active = false;
+
+        // start streaming
+        streamGeneration++;
+        final long myStreamId = streamGeneration;
+        isStreaming = true;
+        streamingReplyBuffer.setLength(0);
+
+        // button + input state
+        this.sendButton.setMessage(Component.literal("Stop"));
+        this.sendButton.active = true; // keep clickable to allow stopping
+        this.chatInput.setEditable(false);
 
         // Add players' message to the local log immediately
         appendToChatLog(new ChatMessage(ChatRole.PLAYER, text));
 
         VillagerChatService.UiCallbacks callbacks = new VillagerChatService.UiCallbacks() {
+            private final long id = myStreamId;
+
             @Override
             public void onThinkingStarted() {
+                if (!isCurrentStream(id)) {
+                    return;
+                }
+
                 ChatMessage thinkingMsg = new ChatMessage(ChatRole.VILLAGER, "Thinking...");
                 appendToChatLog(thinkingMsg);
                 thinkingBubbleIndex = chatMessages.size() - 1;
             }
 
             @Override
+            public void onVillagerReplyDelta(String delta) {
+                if (!isCurrentStream(id)) {
+                    return;
+                }
+
+                streamingReplyBuffer.append(delta);
+                updateThinkingBubble(streamingReplyBuffer.toString());
+            }
+
+            @Override
             public void onVillagerReplyFinished(String fullText) {
+                if (!isCurrentStream(id)) {
+                    return;
+                }
+
                 statusText = "";
+                isStreaming = false;
+                sendButton.setMessage(Component.literal("Send"));
                 sendButton.active = true;
-                
+                if (chatInput != null) {
+                    chatInput.setEditable(true);
+                }
+
                 if (thinkingBubbleIndex >= 0 && thinkingBubbleIndex < chatMessages.size()) {
-                    // Replace the "Thinking..." bubble with the real reply
-                    ChatMessage realMsg = new ChatMessage(ChatRole.VILLAGER, fullText);
-                    chatMessages.set(thinkingBubbleIndex, toUiMessage(realMsg));
+                    updateThinkingBubble(fullText);
                 } else {
-                    // Fallback: just append as a new bubble
                     appendToChatLog(new ChatMessage(ChatRole.VILLAGER, fullText));
                 }
 
+                streamingReplyBuffer.setLength(0);
                 thinkingBubbleIndex = -1;
             }
 
             @Override
             public void onError(String errorMessage) {
+                if (!isCurrentStream(id)) {
+                    return;
+                }
+
                 statusText = errorMessage;
+                isStreaming = false;
+                sendButton.setMessage(Component.literal("Send"));
                 sendButton.active = true;
+                if (chatInput != null) {
+                    chatInput.setEditable(true);
+                }
+
+                if (thinkingBubbleIndex >= 0 && thinkingBubbleIndex < chatMessages.size()) {
+                    updateThinkingBubble("Error: " + errorMessage);
+                }
             }
         };
 
-        // TODO: Implement context retrieval later
+        // World/dimension name
         String worldName = this.minecraft.level != null
                 ? this.minecraft.level.dimension().location().toString()
                 : "Unknown";
 
-        // For DEMO: Set a generic villager for now
+        ensurePersonaResolved();
+
+        Villager v = findNearestVillager();
+        String villagerName = (v != null) ? v.getName().getString() : "Villager";
+        String profession = (v != null) ? prettyProfession(v) : "Unknown";
+
+        UUID conversationId = (v != null) ? v.getUUID() : UUID.randomUUID();
+
         VillagerBrain.Context context = new VillagerBrain.Context(
                 conversationId,
-                "Villager",
-                "Farmer",
+                villagerName,
+                profession,
                 worldName
         );
 
-        OllamaMod.CHAT_SERVICE.sendPlayerMessage(conversationId, context, text, callbacks);
+        OllamaMod.CHAT_SERVICE.sendPlayerMessage(conversationId, context, text, callbacks, true);
     }
 
     private void appendToChatLog(ChatMessage msg) {
@@ -281,7 +387,7 @@ public class OllamaVillagerChatScreen extends Screen {
         List<BubbleRenderData> bubbleData = new ArrayList<>();
         int contentHeight = bubbleSpacing;
 
-        // Oldest → newest
+        // Oldest -> newest
         for (ChatMessageBubble currChatMessage : messagesToRender) {
             List<FormattedCharSequence> lines = this.font.split(
                     currChatMessage.text(),
@@ -369,7 +475,7 @@ public class OllamaVillagerChatScreen extends Screen {
     }
     
     private static class ChatMessageBubble {
-        private final Component text;
+        private Component text;
         private final boolean fromPlayer;
 
         private ChatMessageBubble(Component text, boolean fromPlayer) {
@@ -384,6 +490,18 @@ public class OllamaVillagerChatScreen extends Screen {
         public boolean fromPlayer() {
             return this.fromPlayer;
         }
+
+        public void setText(Component newText) {
+            this.text = newText;
+        }
+    }
+
+    private void updateThinkingBubble(String newText) {
+        if (thinkingBubbleIndex >= 0 && thinkingBubbleIndex < chatMessages.size()) {
+            ChatMessageBubble bubble = chatMessages.get(thinkingBubbleIndex);
+            bubble.setText(Component.literal(newText));
+            this.scrollOffset = Double.MAX_VALUE;
+        }
     }
 
     private ChatMessageBubble toUiMessage(ChatMessage message) {
@@ -395,5 +513,107 @@ public class OllamaVillagerChatScreen extends Screen {
             List<FormattedCharSequence> lines,
             int bubbleWidth,
             int bubbleHeight) {
+    }
+
+    private boolean isCurrentStream(long id) {
+        return id == this.streamGeneration;
+    }
+
+    private void cancelCurrentStream() {
+        // bump generation so any late callbacks from this stream are ignored
+        this.streamGeneration++;
+        this.isStreaming = false;
+
+        this.streamingReplyBuffer.setLength(0);
+        this.thinkingBubbleIndex = -1;
+
+        this.sendButton.setMessage(Component.literal("Send"));
+        this.sendButton.active = true;
+        if (this.chatInput != null) {
+            this.chatInput.setEditable(true);
+        }
+
+        this.statusText = "Stopped.";
+    }
+
+    private void ensurePersonaResolved() {
+        if (this.conversationId != null && this.villagerEntityId != null) {
+            // still refresh name/profession in case they changed
+            Villager v = resolveVillagerFromId(this.villagerEntityId);
+            if (v != null) {
+                this.villagerName = resolveName(v);
+                this.villagerProfession = prettyProfession(v);
+            }
+            return;
+        }
+
+        if (this.minecraft == null || this.minecraft.level == null || this.minecraft.player == null) {
+            if (this.conversationId == null) this.conversationId = UUID.randomUUID();
+            return;
+        }
+
+        Villager villager = null;
+
+        if (this.villagerEntityId != null) {
+            villager = resolveVillagerFromId(this.villagerEntityId);
+        }
+
+        if (villager == null) {
+            villager = findNearestVillager(6.5);
+        }
+
+        if (villager != null) {
+            this.villagerEntityId = villager.getId();
+            this.conversationId = villager.getUUID(); // stable per villager
+            this.villagerName = resolveName(villager);
+            this.villagerProfession = prettyProfession(villager);
+        }
+
+        if (this.conversationId == null) {
+            this.conversationId = UUID.randomUUID();
+        }
+    }
+
+    private Villager resolveVillagerFromId(int entityId) {
+        if (this.minecraft == null || this.minecraft.level == null) return null;
+        Entity e = this.minecraft.level.getEntity(entityId);
+        if (e instanceof Villager v) return v;
+        return null;
+    }
+
+    private Villager findNearestVillager(double radiusBlocks) {
+        if (this.minecraft == null || this.minecraft.level == null || this.minecraft.player == null) return null;
+
+        AABB box = this.minecraft.player.getBoundingBox().inflate(radiusBlocks);
+        List<Villager> villagers = this.minecraft.level.getEntitiesOfClass(Villager.class, box);
+        if (villagers == null || villagers.isEmpty()) return null;
+
+        return villagers.stream()
+                .min(Comparator.comparingDouble(v -> v.distanceToSqr(this.minecraft.player)))
+                .orElse(null);
+    }
+
+    private static String resolveName(Villager v) {
+        if (v == null) return "Villager";
+        if (v.hasCustomName()) {
+            return v.getCustomName() == null ? "Villager" : v.getCustomName().getString();
+        }
+        // getName() usually returns "Villager" unless customized, but is safe.
+        return v.getName().getString();
+    }
+
+    private static String prettyProfession(Villager v) {
+        if (v == null) return "Unknown";
+        try {
+            var holder = v.getVillagerData().profession(); // Holder<VillagerProfession>
+            var profession = holder.value();
+            var key = BuiltInRegistries.VILLAGER_PROFESSION.getKey(profession);
+            if (key == null) return "Unknown";
+            String raw = key.getPath(); // "farmer"
+            if (raw.isEmpty()) return "Unknown";
+            return Character.toUpperCase(raw.charAt(0)) + raw.substring(1);
+        } catch (Throwable t) {
+            return "Unknown";
+        }
     }
 }
