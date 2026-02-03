@@ -149,7 +149,7 @@ public class PromptComposerV1 implements PromptComposer {
                     """;
             case "mason" -> """
                     - You think in terms of foundations, weight, and stone types (andesite, diorite, etc.).
-                    - You metaphors that involve rocks.
+                    - You use metaphors that involve rocks.
                     """;
             case "shepherd" -> """
                     - You are incredibly gentle, soft-hearted, and a bit of a daydreamer.
