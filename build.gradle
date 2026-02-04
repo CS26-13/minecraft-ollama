@@ -248,13 +248,15 @@ sourceSets.each {
 
 // Seed data generator tool (tools/SeedDataGenerator.java)
 def seedToolOutputDir = layout.buildDirectory.dir("seed-tool")
+def seedArgsProvider = providers.gradleProperty('seedArgs')
 
 tasks.register('compileSeedTool', JavaCompile) {
     description = 'Compile SeedDataGenerator standalone tool.'
     group = 'tools'
 
     source = file('tools/SeedDataGenerator.java')
-    classpath = files()
+    dependsOn tasks.named('compileJava')
+    classpath = files(sourceSets.main.output) + configurations.compileClasspath
     destinationDirectory = seedToolOutputDir
     sourceCompatibility = '21'
     targetCompatibility = '21'
@@ -266,11 +268,11 @@ tasks.register('seedData', JavaExec) {
     group = 'tools'
 
     dependsOn tasks.named('compileSeedTool')
-    classpath = files(seedToolOutputDir)
-    mainClass = 'SeedDataGenerator'
+    classpath = files(seedToolOutputDir) + sourceSets.main.runtimeClasspath
+    mainClass = 'net.kevinthedang.ollamamod.tools.SeedDataGenerator'
 
-    if (project.hasProperty('seedArgs')) {
-        args project.seedArgs.toString().split(' ')
+    if (seedArgsProvider.isPresent()) {
+        args seedArgsProvider.get().split(' ')
     }
 }
 

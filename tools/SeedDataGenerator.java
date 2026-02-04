@@ -1,3 +1,8 @@
+package net.kevinthedang.ollamamod.tools;
+
+import net.kevinthedang.ollamamod.vectorstore.chunker.JsonChunker;
+import net.kevinthedang.ollamamod.vectorstore.chunker.TextChunker;
+
 import java.io.BufferedInputStream;
 import java.io.BufferedOutputStream;
 import java.io.DataInputStream;
@@ -14,7 +19,6 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.time.Duration;
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashSet;
 import java.util.List;
@@ -26,15 +30,14 @@ public class SeedDataGenerator {
     private static final String DEFAULT_STORE_PATH =
         "src/main/resources/ollamamod/seed/documents.store";
 
-    private static final int CHUNK_SIZE = 512;
-    private static final int CHUNK_OVERLAP = 64;
-
     private static final String DEFAULT_MODEL = "nomic-embed-text";
     private static final String DEFAULT_OLLAMA_BASE_URL = "http://localhost:11434";
 
     private final HttpClient httpClient;
     private final URI embedEndpoint;
     private final String embeddingModel;
+    private final TextChunker textChunker;
+    private final JsonChunker jsonChunker;
 
     // Entry point for CLI usage (also used by the Gradle seedData task).
     public static void main(String[] arguments) throws Exception {
@@ -92,6 +95,8 @@ public class SeedDataGenerator {
             .build();
         this.embedEndpoint = URI.create(ollamaBaseUrl + "/api/embed");
         this.embeddingModel = embeddingModel;
+        this.textChunker = new TextChunker();
+        this.jsonChunker = new JsonChunker();
     }
 
     // Reads a file, chunks it, embeds each chunk, and appends to the store list.
@@ -111,8 +116,8 @@ public class SeedDataGenerator {
         }
 
         List<String> contentChunks = lowerCaseName.endsWith(".json")
-            ? chunkJson(fileContent)
-            : chunkText(fileContent);
+            ? jsonChunker.chunk(fileContent)
+            : textChunker.chunk(fileContent);
 
         int chunksAdded = 0;
         for (int chunkIndex = 0; chunkIndex < contentChunks.size(); chunkIndex++) {
@@ -204,173 +209,6 @@ public class SeedDataGenerator {
             }
         }
         return -1;
-    }
-
-    // Splits plain text into sentence-aligned chunks with overlap.
-    private static List<String> chunkText(String content) {
-        if (content.length() <= CHUNK_SIZE) {
-            return List.of(content);
-        }
-
-        List<String> chunkList = new ArrayList<>();
-        int startIndex = 0;
-
-        while (startIndex < content.length()) {
-            int endIndex = Math.min(startIndex + CHUNK_SIZE, content.length());
-
-            if (endIndex < content.length()) {
-                int sentenceEndIndex = findSentenceBoundary(content, startIndex, endIndex);
-                if (sentenceEndIndex > startIndex) {
-                    endIndex = sentenceEndIndex;
-                }
-            }
-
-            String chunk = content.substring(startIndex, endIndex).trim();
-            if (!chunk.isEmpty()) {
-                chunkList.add(chunk);
-            }
-            startIndex = endIndex - CHUNK_OVERLAP;
-            if (startIndex <= 0) startIndex = endIndex;
-        }
-
-        return chunkList;
-    }
-
-    // Locates a sentence boundary to avoid cutting mid-sentence.
-    private static int findSentenceBoundary(String text, int startIndex, int endIndex) {
-        int minimumIndex = startIndex + CHUNK_SIZE / 2;
-        for (int index = endIndex; index > minimumIndex; index--) {
-            char character = text.charAt(index - 1);
-            if ((character == '.' || character == '!' || character == '?') &&
-                (index == text.length() || Character.isWhitespace(text.charAt(index)))) {
-                return index;
-            }
-        }
-        return endIndex;
-    }
-
-    // Splits JSON into object-sized chunks without relying on external JSON libraries.
-    private static List<String> chunkJson(String content) {
-        String trimmedContent = content.trim();
-        if (trimmedContent.isEmpty()) return List.of();
-
-        if (trimmedContent.startsWith("[")) {
-            List<String> elements = splitTopLevelArray(trimmedContent);
-            return groupJsonElements(elements);
-        }
-
-        if (trimmedContent.startsWith("{")) {
-            List<String> elements = splitFirstTopLevelArrayInObject(trimmedContent);
-            if (!elements.isEmpty()) {
-                return groupJsonElements(elements);
-            }
-        }
-
-        return List.of(content);
-    }
-
-    // Splits a top-level JSON array into individual element strings.
-    private static List<String> splitTopLevelArray(String text) {
-        List<String> elements = new ArrayList<>();
-        int elementStartIndex = -1;
-        int nestingDepth = 0;
-        boolean insideString = false;
-        boolean isEscaped = false;
-
-        for (int index = 0; index < text.length(); index++) {
-            char character = text.charAt(index);
-            if (isEscaped) {
-                isEscaped = false;
-                continue;
-            }
-            if (character == '\\') {
-                isEscaped = true;
-                continue;
-            }
-            if (character == '"') {
-                insideString = !insideString;
-                continue;
-            }
-            if (insideString) continue;
-
-            if (character == '[') {
-                nestingDepth++;
-                if (nestingDepth == 1) {
-                    continue;
-                }
-            } else if (character == ']') {
-                if (nestingDepth == 1 && elementStartIndex >= 0) {
-                    elements.add(text.substring(elementStartIndex, index).trim());
-                    elementStartIndex = -1;
-                }
-                nestingDepth--;
-            } else if (character == '{' || character == '"' || character == '-' || Character.isDigit(character)) {
-                if (nestingDepth == 1 && elementStartIndex < 0) {
-                    elementStartIndex = index;
-                }
-            } else if (character == ',' && nestingDepth == 1 && elementStartIndex >= 0) {
-                elements.add(text.substring(elementStartIndex, index).trim());
-                elementStartIndex = -1;
-            }
-        }
-        if (elementStartIndex >= 0 && elementStartIndex < text.length()) {
-            elements.add(text.substring(elementStartIndex).trim());
-        }
-        elements.removeIf(String::isEmpty);
-        return elements;
-    }
-
-    // Searches for the first top-level array inside a JSON object and splits it.
-    private static List<String> splitFirstTopLevelArrayInObject(String text) {
-        int nestingDepth = 0;
-        boolean insideString = false;
-        boolean isEscaped = false;
-        for (int index = 0; index < text.length(); index++) {
-            char character = text.charAt(index);
-            if (isEscaped) {
-                isEscaped = false;
-                continue;
-            }
-            if (character == '\\') {
-                isEscaped = true;
-                continue;
-            }
-            if (character == '"') {
-                insideString = !insideString;
-                continue;
-            }
-            if (insideString) continue;
-
-            if (character == '{') nestingDepth++;
-            else if (character == '}') nestingDepth--;
-            else if (character == '[' && nestingDepth == 1) {
-                int endIndex = findMatchingBracket(text, index);
-                if (endIndex > index) {
-                    String arrayText = text.substring(index, endIndex + 1);
-                    return splitTopLevelArray(arrayText);
-                }
-            }
-        }
-        return Collections.emptyList();
-    }
-
-    // Groups JSON element strings into chunks that stay under the max chunk size.
-    private static List<String> groupJsonElements(List<String> elements) {
-        if (elements.isEmpty()) return List.of();
-
-        List<String> chunks = new ArrayList<>();
-        StringBuilder currentChunkBuilder = new StringBuilder();
-        for (String element : elements) {
-            if (currentChunkBuilder.length() + element.length() > CHUNK_SIZE
-                && currentChunkBuilder.length() > 0) {
-                chunks.add(currentChunkBuilder.toString());
-                currentChunkBuilder = new StringBuilder();
-            }
-            if (currentChunkBuilder.length() > 0) currentChunkBuilder.append("\n");
-            currentChunkBuilder.append(element);
-        }
-        if (currentChunkBuilder.length() > 0) chunks.add(currentChunkBuilder.toString());
-        return chunks;
     }
 
     // Writes the in-memory store list to disk in a compact binary format.

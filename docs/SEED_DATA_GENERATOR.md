@@ -36,8 +36,9 @@ Or using a project property:
 ### Direct Java (manual compile)
 
 ```bash
-javac tools/SeedDataGenerator.java
-java -cp tools SeedDataGenerator --ingest tools/seed-documents
+./gradlew classes
+javac -cp build/sourcesSets/main tools/SeedDataGenerator.java
+java -cp tools;build/sourcesSets/main net.kevinthedang.ollamamod.tools.SeedDataGenerator --ingest tools/seed-documents
 ```
 
 ### Other commands
