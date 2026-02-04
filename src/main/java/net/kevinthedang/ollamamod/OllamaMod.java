@@ -2,14 +2,18 @@ package net.kevinthedang.ollamamod;
 
 import com.mojang.logging.LogUtils;
 import net.kevinthedang.ollamamod.screen.OllamaVillagerChatScreen;
+import net.kevinthedang.ollamamod.vectorstore.VectorStoreService;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.components.Button;
 import net.minecraft.client.gui.screens.inventory.MerchantScreen;
 import net.minecraft.network.chat.Component;
+import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.level.block.Blocks;
+import net.minecraft.world.level.storage.LevelResource;
 import net.minecraftforge.api.distmarker.Dist;
 import net.minecraftforge.client.event.ScreenEvent;
+import net.minecraftforge.event.level.LevelEvent;
 import net.minecraftforge.eventbus.api.listener.SubscribeEvent;
 import net.minecraftforge.fml.common.Mod;
 import net.minecraftforge.fml.config.ModConfig;
@@ -34,7 +38,9 @@ public final class OllamaMod {
     public static final ChatHistoryManager CHAT_HISTORY = new ChatHistoryManager();
     public static final AgenticRagVillagerBrain VILLAGER_BRAIN = new AgenticRagVillagerBrain();
     public static final VillagerChatService CHAT_SERVICE = new VillagerChatService(CHAT_HISTORY, VILLAGER_BRAIN);
+    public static final VectorStoreService VECTOR_STORE = new VectorStoreService();
 
+    // Initialize the mod and register configuration + setup hooks.
     public OllamaMod(FMLJavaModLoadingContext context) {
         var modBusGroup = context.getModBusGroup();
 
@@ -45,6 +51,7 @@ public final class OllamaMod {
         context.registerConfig(ModConfig.Type.COMMON, Config.SPEC);
     }
 
+    // Run common setup tasks for the mod.
     private void commonSetup(final FMLCommonSetupEvent event) {
         // Some common setup code
         LOGGER.info("HELLO FROM COMMON SETUP");
@@ -61,6 +68,7 @@ public final class OllamaMod {
     // You can use EventBusSubscriber to automatically register all static methods in the class annotated with @SubscribeEvent
     @Mod.EventBusSubscriber(modid = MOD_ID, value = Dist.CLIENT)
     public static class ClientModEvents {
+        // Run client-only setup.
         @SubscribeEvent
         public static void onClientSetup(FMLClientSetupEvent event) {
             // Some client setup code
@@ -72,6 +80,7 @@ public final class OllamaMod {
     @Mod.EventBusSubscriber(modid = MOD_ID, bus = Mod.EventBusSubscriber.Bus.FORGE, value = Dist.CLIENT)
     public static class VillagerScreenHandler {
 
+        // Inject the villager chat button into the merchant screen.
         @SubscribeEvent
         public static void onScreenInit(ScreenEvent.Init.Post event) {
             if (event.getScreen() instanceof MerchantScreen merchantScreen) {
@@ -87,6 +96,7 @@ public final class OllamaMod {
             }
         }
 
+        // Handle the villager chat button click.
         private static void handleChatButtonClick(MerchantScreen screen) {
             // button click handler
             Minecraft mc = Minecraft.getInstance();
@@ -97,6 +107,30 @@ public final class OllamaMod {
 
                 screen.onClose();
                 mc.setScreen(new OllamaVillagerChatScreen(screen));
+            }
+        }
+    }
+
+    @Mod.EventBusSubscriber(modid = MOD_ID, bus = Mod.EventBusSubscriber.Bus.FORGE)
+    public static class WorldEventHandler {
+        // Persist vector store data when the world is saved.
+        @SubscribeEvent
+        public static void onWorldSave(LevelEvent.Save event) {
+            if (event.getLevel() instanceof ServerLevel serverLevel) {
+                VECTOR_STORE.persistAll(serverLevel.getServer().getWorldPath(LevelResource.ROOT));
+                LOGGER.debug("Vector store persisted");
+            }
+        }
+
+        // Load vector store data (including seed data) when the world loads.
+        @SubscribeEvent
+        public static void onWorldLoad(LevelEvent.Load event) {
+            if (event.getLevel() instanceof ServerLevel serverLevel) {
+                VECTOR_STORE.loadAll(serverLevel.getServer().getWorldPath(LevelResource.ROOT));
+                if (VECTOR_STORE.count(net.kevinthedang.ollamamod.vectorstore.model.MetadataFilter.all()) == 0) {
+                    VECTOR_STORE.loadSeedData();
+                }
+                LOGGER.debug("Vector store loaded");
             }
         }
     }

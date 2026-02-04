@@ -34,3 +34,6 @@ move_build.sh
 modsigning.jks
 keystore.properties
 AGENTS.md
+
+# vector store seed data
+src/main/resources/ollamamod/seed/documents.store
