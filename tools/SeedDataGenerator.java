@@ -36,7 +36,7 @@ public class SeedDataGenerator {
     private final URI embedEndpoint;
     private final String embeddingModel;
 
-    // Entry point for CLI usage.
+    // Entry point for CLI usage (also used by the Gradle seedData task).
     public static void main(String[] arguments) throws Exception {
         if (arguments.length == 0 || hasFlag(arguments, "--help")) {
             printUsage();
@@ -523,7 +523,7 @@ public class SeedDataGenerator {
         return sortedFiles;
     }
 
-    // Prints CLI usage instructions.
+    // Prints CLI usage instructions (including the Gradle task wrapper).
     private static void printUsage() {
         System.out.println("SeedDataGenerator usage:");
         System.out.println("  --ingest <file|dir> [file|dir ...]  Ingest .txt/.json files (dirs are recursive)");
@@ -532,6 +532,10 @@ public class SeedDataGenerator {
         System.out.println("  --output <path>                     Override output path");
         System.out.println("  --model <name>                      Embedding model (default nomic-embed-text)");
         System.out.println("  --ollama <url>                      Ollama base URL (default http://localhost:11434)");
+        System.out.println();
+        System.out.println("Gradle wrapper:");
+        System.out.println("  ./gradlew seedData --args=\"--ingest tools/seed-documents\"");
+        System.out.println("  ./gradlew seedData -PseedArgs=\"--ingest tools/seed-documents/crafting_recipes.json\"");
     }
 
     private static class ParsedArguments {

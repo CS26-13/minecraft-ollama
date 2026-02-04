@@ -243,6 +243,34 @@ sourceSets.each {
     it.java.destinationDirectory = dir
 }
 
+// Seed data generator tool (tools/SeedDataGenerator.java)
+def seedToolOutputDir = layout.buildDirectory.dir("seed-tool")
+
+tasks.register('compileSeedTool', JavaCompile) {
+    description = 'Compile SeedDataGenerator standalone tool.'
+    group = 'tools'
+
+    source = file('tools/SeedDataGenerator.java')
+    classpath = files()
+    destinationDirectory = seedToolOutputDir
+    sourceCompatibility = '21'
+    targetCompatibility = '21'
+    options.encoding = 'UTF-8'
+}
+
+tasks.register('seedData', JavaExec) {
+    description = 'Run SeedDataGenerator with optional --args or -PseedArgs="...".'
+    group = 'tools'
+
+    dependsOn tasks.named('compileSeedTool')
+    classpath = files(seedToolOutputDir)
+    mainClass = 'SeedDataGenerator'
+
+    if (project.hasProperty('seedArgs')) {
+        args project.seedArgs.toString().split(' ')
+    }
+}
+
 // JAR SIGNING 
 // This section adds an automatic post-build signing step to the Forge mod.
 // When a local keystore.properties file and keystore (modsigning.jks) are found,
