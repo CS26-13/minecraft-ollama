@@ -103,7 +103,7 @@ public class VectorStoreService {
             if (seedStream != null) {
                 store.loadFromStream(seedStream);
             }
-        } catch (Exception exception) {
+        } catch (java.io.IOException exception) {
             throw new RuntimeException("Failed to load seed data", exception);
         }
     }
@@ -117,7 +117,7 @@ public class VectorStoreService {
     private String readFile(Path path) {
         try {
             return Files.readString(path, StandardCharsets.UTF_8);
-        } catch (Exception exception) {
+        } catch (java.io.IOException exception) {
             throw new RuntimeException("Failed to read file: " + path, exception);
         }
     }

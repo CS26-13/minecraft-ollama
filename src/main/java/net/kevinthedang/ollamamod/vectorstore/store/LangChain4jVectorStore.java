@@ -29,19 +29,22 @@ import java.util.Optional;
 public class LangChain4jVectorStore implements VectorStore {
     private final InMemoryEmbeddingStore<TextSegment> embeddingStore;
     private final Map<String, VectorDocument> documentIndex;
+    private final Map<String, String> embeddingIdIndex;
 
     // Initialize an empty in-memory store and index.
     public LangChain4jVectorStore() {
         this.embeddingStore = new InMemoryEmbeddingStore<>();
         this.documentIndex = new HashMap<>();
+        this.embeddingIdIndex = new HashMap<>();
     }
 
     // Store a single document in the embedding store and index.
     @Override
     public void store(VectorDocument document) {
         TextSegment segment = toSegment(document);
-        embeddingStore.add(Embedding.from(document.embedding()), segment);
+        String embeddingId = embeddingStore.add(Embedding.from(document.embedding()), segment);
         documentIndex.put(document.id(), document);
+        embeddingIdIndex.put(document.id(), embeddingId);
     }
 
     // Store multiple documents in the embedding store and index.
@@ -89,7 +92,12 @@ public class LangChain4jVectorStore implements VectorStore {
         if (document == null) {
             return false;
         }
-        rebuildEmbeddingStore();
+        String embeddingId = embeddingIdIndex.remove(documentId);
+        if (embeddingId != null) {
+            embeddingStore.removeAll(List.of(embeddingId));
+        } else {
+            rebuildEmbeddingStore();
+        }
         return true;
     }
 
@@ -100,11 +108,13 @@ public class LangChain4jVectorStore implements VectorStore {
             int removed = documentIndex.size();
             documentIndex.clear();
             embeddingStore.removeAll();
+            embeddingIdIndex.clear();
             return removed;
         }
 
         int removed = 0;
         List<String> toRemove = new ArrayList<>();
+        List<String> embeddingIdsToRemove = new ArrayList<>();
         for (VectorDocument document : documentIndex.values()) {
             if (matchesFilter(document, filter)) {
                 toRemove.add(document.id());
@@ -112,9 +122,15 @@ public class LangChain4jVectorStore implements VectorStore {
         }
         for (String id : toRemove) {
             documentIndex.remove(id);
+            String embeddingId = embeddingIdIndex.remove(id);
+            if (embeddingId != null) {
+                embeddingIdsToRemove.add(embeddingId);
+            }
             removed++;
         }
-        if (removed > 0) {
+        if (!embeddingIdsToRemove.isEmpty()) {
+            embeddingStore.removeAll(embeddingIdsToRemove);
+        } else if (removed > 0) {
             rebuildEmbeddingStore();
         }
         return removed;
@@ -191,6 +207,7 @@ public class LangChain4jVectorStore implements VectorStore {
     public void clear() {
         documentIndex.clear();
         embeddingStore.removeAll();
+        embeddingIdIndex.clear();
     }
 
     // Convert a VectorDocument into a LangChain4j TextSegment with metadata.
@@ -228,8 +245,10 @@ public class LangChain4jVectorStore implements VectorStore {
     // Rebuild the embedding store from the current index.
     private void rebuildEmbeddingStore() {
         embeddingStore.removeAll();
+        embeddingIdIndex.clear();
         for (VectorDocument document : documentIndex.values()) {
-            embeddingStore.add(Embedding.from(document.embedding()), toSegment(document));
+            String embeddingId = embeddingStore.add(Embedding.from(document.embedding()), toSegment(document));
+            embeddingIdIndex.put(document.id(), embeddingId);
         }
     }
 

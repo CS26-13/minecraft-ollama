@@ -33,12 +33,23 @@ Or using a project property:
 ./gradlew seedData -PseedArgs="--ingest tools/seed-documents/crafting_recipes.json"
 ```
 
-### Direct Java (manual compile)
+### Direct Java (manual compile, optional)
 
+Prefer the Gradle wrapper above. If you want to run it manually, compile against the main output
+and use the correct classpath separator for your OS.
+
+**Windows (PowerShell):**
 ```bash
 ./gradlew classes
 javac -cp build/sourcesSets/main tools/SeedDataGenerator.java
 java -cp tools;build/sourcesSets/main net.kevinthedang.ollamamod.tools.SeedDataGenerator --ingest tools/seed-documents
+```
+
+**macOS/Linux (bash):**
+```bash
+./gradlew classes
+javac -cp build/sourcesSets/main tools/SeedDataGenerator.java
+java -cp tools:build/sourcesSets/main net.kevinthedang.ollamamod.tools.SeedDataGenerator --ingest tools/seed-documents
 ```
 
 ### Other commands

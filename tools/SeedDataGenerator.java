@@ -2,6 +2,8 @@ package net.kevinthedang.ollamamod.tools;
 
 import net.kevinthedang.ollamamod.vectorstore.chunker.JsonChunker;
 import net.kevinthedang.ollamamod.vectorstore.chunker.TextChunker;
+import net.kevinthedang.ollamamod.vectorstore.embedding.EmbeddingService;
+import net.kevinthedang.ollamamod.vectorstore.embedding.OllamaEmbeddingService;
 
 import java.io.BufferedInputStream;
 import java.io.BufferedOutputStream;
@@ -9,15 +11,10 @@ import java.io.DataInputStream;
 import java.io.DataOutputStream;
 import java.io.EOFException;
 import java.io.IOException;
-import java.net.URI;
-import java.net.http.HttpClient;
-import java.net.http.HttpRequest;
-import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
-import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashSet;
@@ -33,9 +30,7 @@ public class SeedDataGenerator {
     private static final String DEFAULT_MODEL = "nomic-embed-text";
     private static final String DEFAULT_OLLAMA_BASE_URL = "http://localhost:11434";
 
-    private final HttpClient httpClient;
-    private final URI embedEndpoint;
-    private final String embeddingModel;
+    private final EmbeddingService embeddingService;
     private final TextChunker textChunker;
     private final JsonChunker jsonChunker;
 
@@ -90,11 +85,7 @@ public class SeedDataGenerator {
 
     // Creates a generator with the target Ollama base URL and embedding model.
     public SeedDataGenerator(String ollamaBaseUrl, String embeddingModel) {
-        this.httpClient = HttpClient.newBuilder()
-            .connectTimeout(Duration.ofSeconds(5))
-            .build();
-        this.embedEndpoint = URI.create(ollamaBaseUrl + "/api/embed");
-        this.embeddingModel = embeddingModel;
+        this.embeddingService = new OllamaEmbeddingService(ollamaBaseUrl, embeddingModel);
         this.textChunker = new TextChunker();
         this.jsonChunker = new JsonChunker();
     }
@@ -124,7 +115,7 @@ public class SeedDataGenerator {
             String chunkContent = contentChunks.get(chunkIndex);
             float[] embeddingVector;
             try {
-                embeddingVector = embed(chunkContent);
+                embeddingVector = embeddingService.embed(chunkContent).join();
             } catch (Exception exception) {
                 System.err.println("Embedding failed for " + inputFile + " chunk "
                     + chunkIndex + ": " + exception.getMessage());
@@ -145,70 +136,6 @@ public class SeedDataGenerator {
 
         System.out.println("Ingested " + inputFile + " -> " + chunksAdded + " chunks");
         return chunksAdded;
-    }
-
-    // Sends a single embedding request to Ollama and returns the float vector.
-    private float[] embed(String inputText) throws Exception {
-        String requestBody = "{\"model\":\"" + escapeJson(embeddingModel) + "\",\"input\":"
-            + jsonString(inputText) + "}";
-
-        HttpRequest request = HttpRequest.newBuilder()
-            .uri(embedEndpoint)
-            .timeout(Duration.ofSeconds(30))
-            .header("Content-Type", "application/json")
-            .POST(HttpRequest.BodyPublishers.ofString(requestBody, StandardCharsets.UTF_8))
-            .build();
-
-        HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
-        if (response.statusCode() != 200) {
-            throw new RuntimeException("Ollama HTTP " + response.statusCode() + ": " + response.body());
-        }
-
-        return parseEmbedding(response.body());
-    }
-
-    // Extracts the first embedding vector from the Ollama /api/embed response JSON.
-    private static float[] parseEmbedding(String jsonResponse) {
-        int embeddingsKeyIndex = jsonResponse.indexOf("\"embeddings\"");
-        if (embeddingsKeyIndex < 0) {
-            throw new IllegalArgumentException("No embeddings field in response");
-        }
-        int outerArrayStart = jsonResponse.indexOf('[', embeddingsKeyIndex);
-        if (outerArrayStart < 0) {
-            throw new IllegalArgumentException("Invalid embeddings array");
-        }
-        int vectorArrayStart = jsonResponse.indexOf('[', outerArrayStart + 1);
-        if (vectorArrayStart < 0) {
-            throw new IllegalArgumentException("Invalid embeddings array");
-        }
-        int vectorArrayEnd = findMatchingBracket(jsonResponse, vectorArrayStart);
-        if (vectorArrayEnd < 0) {
-            throw new IllegalArgumentException("Unterminated embeddings array");
-        }
-
-        String innerVector = jsonResponse.substring(vectorArrayStart + 1, vectorArrayEnd).trim();
-        if (innerVector.isEmpty()) return new float[0];
-
-        String[] vectorParts = innerVector.split(",");
-        float[] embeddingVector = new float[vectorParts.length];
-        for (int index = 0; index < vectorParts.length; index++) {
-            embeddingVector[index] = Float.parseFloat(vectorParts[index].trim());
-        }
-        return embeddingVector;
-    }
-
-    // Finds the matching closing bracket for a JSON array starting at the given index.
-    private static int findMatchingBracket(String text, int openingBracketIndex) {
-        int nestingDepth = 0;
-        for (int index = openingBracketIndex; index < text.length(); index++) {
-            char character = text.charAt(index);
-            if (character == '[') nestingDepth++;
-            else if (character == ']') {
-                nestingDepth--;
-                if (nestingDepth == 0) return index;
-            }
-        }
-        return -1;
     }
 
     // Writes the in-memory store list to disk in a compact binary format.
@@ -265,35 +192,6 @@ public class SeedDataGenerator {
         if (text == null) return "";
         if (text.length() <= maximumLength) return text;
         return text.substring(0, Math.max(0, maximumLength - 3)) + "...";
-    }
-
-    // Escapes quotes and backslashes for JSON field values.
-    private static String escapeJson(String text) {
-        return text.replace("\\", "\\\\").replace("\"", "\\\"");
-    }
-
-    // Converts a Java string into a JSON string literal.
-    private static String jsonString(String text) {
-        StringBuilder stringBuilder = new StringBuilder();
-        stringBuilder.append('"');
-        for (int index = 0; index < text.length(); index++) {
-            char character = text.charAt(index);
-            switch (character) {
-                case '"': stringBuilder.append("\\\""); break;
-                case '\\': stringBuilder.append("\\\\"); break;
-                case '\n': stringBuilder.append("\\n"); break;
-                case '\r': stringBuilder.append("\\r"); break;
-                case '\t': stringBuilder.append("\\t"); break;
-                default:
-                    if (character < 0x20) {
-                        stringBuilder.append(String.format("\\u%04x", (int) character));
-                    } else {
-                        stringBuilder.append(character);
-                    }
-            }
-        }
-        stringBuilder.append('"');
-        return stringBuilder.toString();
     }
 
     // Checks if a flag is present in the argument list.
@@ -443,27 +341,40 @@ public class SeedDataGenerator {
         void write(DataOutputStream outputStream) throws IOException {
             outputStream.writeUTF(id);
             outputStream.writeUTF(content);
-            outputStream.writeLong(timestamp);
-            outputStream.writeInt(chunkIndex);
-            outputStream.writeInt(chunkTotal);
             outputStream.writeInt(embedding.length);
             for (float value : embedding) {
                 outputStream.writeFloat(value);
             }
+            outputStream.writeUTF("document");
+            outputStream.writeBoolean(false);
+            outputStream.writeBoolean(false);
+            outputStream.writeLong(timestamp);
+            outputStream.writeInt(chunkIndex);
+            outputStream.writeInt(chunkTotal);
         }
 
         // Reads a document from the binary store input stream.
         static SeedDocument read(DataInputStream inputStream) throws IOException {
             String id = inputStream.readUTF();
             String content = inputStream.readUTF();
-            long timestamp = inputStream.readLong();
-            int chunkIndex = inputStream.readInt();
-            int chunkTotal = inputStream.readInt();
             int length = inputStream.readInt();
             float[] embedding = new float[length];
             for (int index = 0; index < length; index++) {
                 embedding[index] = inputStream.readFloat();
             }
+            String type = inputStream.readUTF();
+            if (!"document".equals(type)) {
+                throw new IOException("Unexpected seed document type: " + type);
+            }
+            if (inputStream.readBoolean()) {
+                inputStream.readUTF();
+            }
+            if (inputStream.readBoolean()) {
+                inputStream.readUTF();
+            }
+            long timestamp = inputStream.readLong();
+            int chunkIndex = inputStream.readInt();
+            int chunkTotal = inputStream.readInt();
             return new SeedDocument(id, content, embedding, timestamp, chunkIndex, chunkTotal);
         }
     }
