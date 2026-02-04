@@ -171,6 +171,10 @@ dependencies {
 
     // LangChain4j for vector store
     implementation 'dev.langchain4j:langchain4j:0.35.0'
+
+    // JUnit for tests
+    testImplementation 'org.junit.jupiter:junit-jupiter:5.10.2'
+    testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
 }
 
 // This block of code expands all declared replace properties in the specified resource targets.
@@ -223,6 +227,20 @@ publishing {
 
 tasks.withType(JavaCompile).configureEach {
     options.encoding = 'UTF-8' // Use the UTF-8 charset for Java compilation
+}
+
+tasks.withType(Test).configureEach {
+    useJUnitPlatform()
+    if (providers.gradleProperty('disableOllamaTests').isPresent()) {
+        useJUnitPlatform {
+            excludeTags 'ollama'
+        }
+    }
+    testLogging {
+        events 'failed', 'skipped'
+        showStandardStreams = true
+        exceptionFormat 'full'
+    }
 }
 
 // IntelliJ no longer downloads javadocs and sources by default, this tells Gradle to force IntelliJ to do it.

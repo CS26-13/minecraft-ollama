@@ -31,12 +31,23 @@ public class TextChunker extends Chunker {
                 }
             }
 
+            if (endIndex <= startIndex) {
+                endIndex = Math.min(startIndex + maxChunkSize, content.length());
+                if (endIndex <= startIndex) {
+                    break;
+                }
+            }
+
             String chunk = content.substring(startIndex, endIndex).trim();
             if (!chunk.isEmpty()) {
                 chunks.add(chunk);
             }
-            startIndex = endIndex - overlapSize;
-            if (startIndex <= 0) startIndex = endIndex;
+            int nextStart = endIndex - overlapSize;
+            if (nextStart <= startIndex) {
+                startIndex = endIndex;
+            } else {
+                startIndex = nextStart;
+            }
         }
 
         return chunks;
