@@ -302,7 +302,16 @@ public class OllamaVillagerChatScreen extends Screen {
                 worldName
         );
 
-        OllamaMod.CHAT_SERVICE.sendPlayerMessage(conversationId, context, text, callbacks, true);
+        // Pass the villager position so the chat service can play the sound at the correct location
+        OllamaMod.CHAT_SERVICE.sendPlayerMessage(
+                conversationId,
+                context,
+                text,
+                callbacks,
+                true,
+                (v != null) ? v.position() : null
+        );
+
     }
 
     private void appendToChatLog(ChatMessage msg) {
