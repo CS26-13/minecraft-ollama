@@ -27,8 +27,6 @@ public class VectorStoreServiceIntegrationTest {
                 + " (run: ollama pull nomic-embed-text)"
         );
 
-        VectorStoreSettings.defaultMinScore = 0.2;
-
         VectorStoreService service = new VectorStoreService(
             embeddingService,
             new LangChain4jVectorStore(),
