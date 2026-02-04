@@ -7,8 +7,10 @@ import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.components.Button;
 import net.minecraft.client.gui.screens.inventory.MerchantScreen;
 import net.minecraft.network.chat.Component;
+import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.level.block.Blocks;
+import net.minecraft.world.level.storage.LevelResource;
 import net.minecraftforge.api.distmarker.Dist;
 import net.minecraftforge.client.event.ScreenEvent;
 import net.minecraftforge.event.level.LevelEvent;
@@ -114,8 +116,8 @@ public final class OllamaMod {
         // Persist vector store data when the world is saved.
         @SubscribeEvent
         public static void onWorldSave(LevelEvent.Save event) {
-            if (!event.getLevel().isClientSide()) {
-                VECTOR_STORE.persistAll();
+            if (event.getLevel() instanceof ServerLevel serverLevel) {
+                VECTOR_STORE.persistAll(serverLevel.getServer().getWorldPath(LevelResource.ROOT));
                 LOGGER.debug("Vector store persisted");
             }
         }
@@ -123,8 +125,8 @@ public final class OllamaMod {
         // Load vector store data (including seed data) when the world loads.
         @SubscribeEvent
         public static void onWorldLoad(LevelEvent.Load event) {
-            if (!event.getLevel().isClientSide()) {
-                VECTOR_STORE.loadAll();
+            if (event.getLevel() instanceof ServerLevel serverLevel) {
+                VECTOR_STORE.loadAll(serverLevel.getServer().getWorldPath(LevelResource.ROOT));
                 VECTOR_STORE.loadSeedData();
                 LOGGER.debug("Vector store loaded");
             }

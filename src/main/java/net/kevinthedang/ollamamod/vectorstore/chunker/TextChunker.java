@@ -11,6 +11,11 @@ public class TextChunker extends Chunker {
         super(VectorStoreSettings.chunkSize, VectorStoreSettings.chunkOverlap);
     }
 
+    // Chunker for plain text with explicit size and overlap settings.
+    public TextChunker(int maxChunkSize, int overlapSize) {
+        super(maxChunkSize, overlapSize);
+    }
+
     // Split content into sentence-aligned chunks with overlap.
     @Override
     public List<String> chunk(String content) {

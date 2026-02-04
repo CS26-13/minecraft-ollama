@@ -4,6 +4,8 @@ import net.kevinthedang.ollamamod.vectorstore.chunker.JsonChunker;
 import net.kevinthedang.ollamamod.vectorstore.chunker.TextChunker;
 import net.kevinthedang.ollamamod.vectorstore.embedding.EmbeddingService;
 import net.kevinthedang.ollamamod.vectorstore.embedding.OllamaEmbeddingService;
+import net.kevinthedang.ollamamod.vectorstore.model.VectorDocument;
+import net.kevinthedang.ollamamod.vectorstore.model.VectorMetadata;
 
 import java.io.BufferedInputStream;
 import java.io.BufferedOutputStream;
@@ -67,7 +69,7 @@ public class SeedDataGenerator {
                 return;
             }
 
-            List<SeedDocument> storeDocuments = loadStore(storePath);
+            List<VectorDocument> storeDocuments = loadStore(storePath);
             int totalChunksAdded = 0;
             for (Path ingestFile : ingestFiles) {
                 totalChunksAdded += generator.ingestFile(ingestFile, storeDocuments);
@@ -91,7 +93,7 @@ public class SeedDataGenerator {
     }
 
     // Reads a file, chunks it, embeds each chunk, and appends to the store list.
-    private int ingestFile(Path inputFile, List<SeedDocument> storeDocuments) {
+    private int ingestFile(Path inputFile, List<VectorDocument> storeDocuments) {
         String lowerCaseName = inputFile.getFileName().toString().toLowerCase(Locale.ROOT);
         if (!(lowerCaseName.endsWith(".txt") || lowerCaseName.endsWith(".json"))) {
             System.out.println("Skipping unsupported file: " + inputFile);
@@ -122,13 +124,13 @@ public class SeedDataGenerator {
                 continue;
             }
 
-            SeedDocument seedDocument = new SeedDocument(
+            VectorMetadata metadata = VectorMetadata.document()
+                .withChunk(chunkIndex, contentChunks.size());
+            VectorDocument seedDocument = new VectorDocument(
                 UUID.randomUUID().toString(),
                 chunkContent,
                 embeddingVector,
-                System.currentTimeMillis(),
-                chunkIndex,
-                contentChunks.size()
+                metadata
             );
             storeDocuments.add(seedDocument);
             chunksAdded++;
@@ -139,27 +141,27 @@ public class SeedDataGenerator {
     }
 
     // Writes the in-memory store list to disk in a compact binary format.
-    private static void persistStore(Path storePath, List<SeedDocument> storeDocuments) throws IOException {
+    private static void persistStore(Path storePath, List<VectorDocument> storeDocuments) throws IOException {
         Files.createDirectories(storePath.toAbsolutePath().getParent());
         try (DataOutputStream outputStream = new DataOutputStream(
             new BufferedOutputStream(Files.newOutputStream(storePath)))) {
             outputStream.writeInt(storeDocuments.size());
-            for (SeedDocument document : storeDocuments) {
-                document.write(outputStream);
+            for (VectorDocument document : storeDocuments) {
+                document.writeTo(outputStream);
             }
         }
     }
 
     // Loads the store from disk if it exists, otherwise returns an empty list.
-    private static List<SeedDocument> loadStore(Path storePath) {
+    private static List<VectorDocument> loadStore(Path storePath) {
         if (!Files.exists(storePath)) return new ArrayList<>();
 
-        List<SeedDocument> storeDocuments = new ArrayList<>();
+        List<VectorDocument> storeDocuments = new ArrayList<>();
         try (DataInputStream inputStream = new DataInputStream(
             new BufferedInputStream(Files.newInputStream(storePath)))) {
             int documentCount = inputStream.readInt();
             for (int index = 0; index < documentCount; index++) {
-                storeDocuments.add(SeedDocument.read(inputStream));
+                storeDocuments.add(VectorDocument.readFrom(inputStream));
             }
         } catch (EOFException eofException) {
             System.err.println("Store file appears truncated; loading what we can.");
@@ -178,12 +180,12 @@ public class SeedDataGenerator {
 
     // Prints store size and a small sample of contents.
     private static void listStore(Path storePath) {
-        List<SeedDocument> storeDocuments = loadStore(storePath);
+        List<VectorDocument> storeDocuments = loadStore(storePath);
         System.out.println("Store: " + storePath + " (" + storeDocuments.size() + " documents)");
         int sampleCount = Math.min(3, storeDocuments.size());
         for (int index = 0; index < sampleCount; index++) {
-            SeedDocument document = storeDocuments.get(index);
-            System.out.println("- " + abbreviate(document.content, 120));
+            VectorDocument document = storeDocuments.get(index);
+            System.out.println("- " + abbreviate(document.content(), 120));
         }
     }
 
@@ -316,66 +318,6 @@ public class SeedDataGenerator {
                 ollamaBaseUrl,
                 ingestTargets
             );
-        }
-    }
-
-    private static class SeedDocument {
-        private final String id;
-        private final String content;
-        private final float[] embedding;
-        private final long timestamp;
-        private final int chunkIndex;
-        private final int chunkTotal;
-
-        SeedDocument(String id, String content, float[] embedding,
-                     long timestamp, int chunkIndex, int chunkTotal) {
-            this.id = id;
-            this.content = content;
-            this.embedding = embedding;
-            this.timestamp = timestamp;
-            this.chunkIndex = chunkIndex;
-            this.chunkTotal = chunkTotal;
-        }
-
-        // Writes this document to the binary store output stream.
-        void write(DataOutputStream outputStream) throws IOException {
-            outputStream.writeUTF(id);
-            outputStream.writeUTF(content);
-            outputStream.writeInt(embedding.length);
-            for (float value : embedding) {
-                outputStream.writeFloat(value);
-            }
-            outputStream.writeUTF("document");
-            outputStream.writeBoolean(false);
-            outputStream.writeBoolean(false);
-            outputStream.writeLong(timestamp);
-            outputStream.writeInt(chunkIndex);
-            outputStream.writeInt(chunkTotal);
-        }
-
-        // Reads a document from the binary store input stream.
-        static SeedDocument read(DataInputStream inputStream) throws IOException {
-            String id = inputStream.readUTF();
-            String content = inputStream.readUTF();
-            int length = inputStream.readInt();
-            float[] embedding = new float[length];
-            for (int index = 0; index < length; index++) {
-                embedding[index] = inputStream.readFloat();
-            }
-            String type = inputStream.readUTF();
-            if (!"document".equals(type)) {
-                throw new IOException("Unexpected seed document type: " + type);
-            }
-            if (inputStream.readBoolean()) {
-                inputStream.readUTF();
-            }
-            if (inputStream.readBoolean()) {
-                inputStream.readUTF();
-            }
-            long timestamp = inputStream.readLong();
-            int chunkIndex = inputStream.readInt();
-            int chunkTotal = inputStream.readInt();
-            return new SeedDocument(id, content, embedding, timestamp, chunkIndex, chunkTotal);
         }
     }
 }

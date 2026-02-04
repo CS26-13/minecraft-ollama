@@ -20,6 +20,11 @@ public class JsonChunker extends Chunker {
         super(VectorStoreSettings.chunkSize, 0);
     }
 
+    // Chunker for JSON content with explicit size settings.
+    public JsonChunker(int maxChunkSize) {
+        super(maxChunkSize, 0);
+    }
+
     // Split JSON into object-based chunks without splitting objects.
     @Override
     public List<String> chunk(String content) {

@@ -87,14 +87,14 @@ public class VectorStoreService {
             ));
     }
 
-    // Persist all stored embeddings and metadata to disk.
-    public void persistAll() {
-        store.persist(getStorePath());
+    // Persist all stored embeddings and metadata to disk in the provided directory.
+    public void persistAll(Path baseDirectory) {
+        store.persist(resolveStorePath(baseDirectory));
     }
 
-    // Load stored embeddings and metadata from disk.
-    public void loadAll() {
-        store.load(getStorePath());
+    // Load stored embeddings and metadata from disk in the provided directory.
+    public void loadAll(Path baseDirectory) {
+        store.load(resolveStorePath(baseDirectory));
     }
 
     // Load seed data from the resources folder if present.
@@ -147,7 +147,8 @@ public class VectorStoreService {
     }
 
     // Resolve the on-disk path to the vector store file.
-    private Path getStorePath() {
-        return Path.of(VectorStoreSettings.dataDirectory, VectorStoreSettings.storeFile);
+    private Path resolveStorePath(Path baseDirectory) {
+        return baseDirectory.resolve(VectorStoreSettings.dataDirectory)
+            .resolve(VectorStoreSettings.storeFile);
     }
 }

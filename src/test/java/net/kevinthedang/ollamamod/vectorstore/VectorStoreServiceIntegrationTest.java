@@ -6,7 +6,6 @@ import net.kevinthedang.ollamamod.vectorstore.chunker.TextChunker;
 import net.kevinthedang.ollamamod.vectorstore.embedding.OllamaEmbeddingService;
 import net.kevinthedang.ollamamod.vectorstore.model.VectorDocument;
 import net.kevinthedang.ollamamod.vectorstore.store.LangChain4jVectorStore;
-import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.Test;
@@ -18,14 +17,6 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 @Tag("ollama")
 public class VectorStoreServiceIntegrationTest {
-    private final double originalMinScore = VectorStoreSettings.defaultMinScore;
-
-    // Restore static settings after each test.
-    @AfterEach
-    public void tearDown() {
-        VectorStoreSettings.defaultMinScore = originalMinScore;
-    }
-
     // Store and query memories using real Ollama embeddings.
     @Test
     public void storeAndQueryMemoryUsingOllama() {

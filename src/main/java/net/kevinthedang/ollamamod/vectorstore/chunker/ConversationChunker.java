@@ -18,6 +18,11 @@ public class ConversationChunker extends Chunker {
         super(VectorStoreSettings.chunkSize, 0);
     }
 
+    // Chunker for conversation logs with explicit size settings.
+    public ConversationChunker(int maxChunkSize) {
+        super(maxChunkSize, 0);
+    }
+
     // Split conversations into exchange-based chunks.
     @Override
     public List<String> chunk(String content) {

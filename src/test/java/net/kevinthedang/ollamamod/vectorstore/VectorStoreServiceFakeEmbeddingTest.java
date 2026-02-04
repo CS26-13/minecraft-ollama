@@ -20,8 +20,6 @@ public class VectorStoreServiceFakeEmbeddingTest {
     // Store and query memories using deterministic fake embeddings.
     @Test
     public void storeAndQueryMemoryUsingFakeEmbeddings() {
-        VectorStoreSettings.defaultMinScore = 0.2;
-
         VectorStoreService service = new VectorStoreService(
             new FakeEmbeddingService(VectorStoreSettings.embeddingDimension),
             new LangChain4jVectorStore(),

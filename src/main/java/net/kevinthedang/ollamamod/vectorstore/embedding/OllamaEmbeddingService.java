@@ -114,7 +114,7 @@ public class OllamaEmbeddingService implements EmbeddingService {
     private static float[] parseFirstEmbedding(String jsonResponse) {
         List<float[]> embeddings = parseEmbeddings(jsonResponse);
         if (embeddings.isEmpty()) {
-            return new float[0];
+            throw new IllegalArgumentException("Ollama response contained no embeddings");
         }
         return embeddings.get(0);
     }

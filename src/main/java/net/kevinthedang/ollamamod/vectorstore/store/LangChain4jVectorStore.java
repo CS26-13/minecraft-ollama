@@ -4,12 +4,17 @@ import dev.langchain4j.data.document.Metadata;
 import dev.langchain4j.data.embedding.Embedding;
 import dev.langchain4j.data.segment.TextSegment;
 import dev.langchain4j.store.embedding.EmbeddingMatch;
+import dev.langchain4j.store.embedding.filter.Filter;
+import dev.langchain4j.store.embedding.filter.MetadataFilterBuilder;
+import dev.langchain4j.store.embedding.filter.logical.And;
 import dev.langchain4j.store.embedding.EmbeddingSearchRequest;
 import dev.langchain4j.store.embedding.EmbeddingSearchResult;
 import dev.langchain4j.store.embedding.inmemory.InMemoryEmbeddingStore;
 import net.kevinthedang.ollamamod.vectorstore.model.MetadataFilter;
 import net.kevinthedang.ollamamod.vectorstore.model.VectorDocument;
 import net.kevinthedang.ollamamod.vectorstore.model.VectorMetadata;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.io.BufferedInputStream;
 import java.io.BufferedOutputStream;
@@ -27,6 +32,7 @@ import java.util.Map;
 import java.util.Optional;
 
 public class LangChain4jVectorStore implements VectorStore {
+    private static final Logger LOGGER = LoggerFactory.getLogger(LangChain4jVectorStore.class);
     private final InMemoryEmbeddingStore<TextSegment> embeddingStore;
     private final Map<String, VectorDocument> documentIndex;
     private final Map<String, String> embeddingIdIndex;
@@ -59,10 +65,12 @@ public class LangChain4jVectorStore implements VectorStore {
     @Override
     public List<VectorDocument> query(float[] queryEmbedding, MetadataFilter filter,
                                       int topK, double minScore) {
+        Filter metadataFilter = toLangChainFilter(filter);
         EmbeddingSearchRequest request = EmbeddingSearchRequest.builder()
             .queryEmbedding(Embedding.from(queryEmbedding))
             .maxResults(topK)
             .minScore(minScore)
+            .filter(metadataFilter)
             .build();
         EmbeddingSearchResult<TextSegment> searchResult = embeddingStore.search(request);
         List<EmbeddingMatch<TextSegment>> matches = searchResult.matches();
@@ -96,7 +104,7 @@ public class LangChain4jVectorStore implements VectorStore {
         if (embeddingId != null) {
             embeddingStore.removeAll(List.of(embeddingId));
         } else {
-            rebuildEmbeddingStore();
+            LOGGER.warn("Embedding ID missing for document {}. Embedding entry not removed.", documentId);
         }
         return true;
     }
@@ -131,7 +139,7 @@ public class LangChain4jVectorStore implements VectorStore {
         if (!embeddingIdsToRemove.isEmpty()) {
             embeddingStore.removeAll(embeddingIdsToRemove);
         } else if (removed > 0) {
-            rebuildEmbeddingStore();
+            LOGGER.warn("Embedding IDs missing for {} documents. Embedding entries not removed.", removed);
         }
         return removed;
     }
@@ -158,7 +166,7 @@ public class LangChain4jVectorStore implements VectorStore {
                 new BufferedOutputStream(Files.newOutputStream(path)))) {
                 outputStream.writeInt(documentIndex.size());
                 for (VectorDocument document : documentIndex.values()) {
-                    writeDocument(outputStream, document);
+                    document.writeTo(outputStream);
                 }
             }
         } catch (IOException exception) {
@@ -176,7 +184,7 @@ public class LangChain4jVectorStore implements VectorStore {
             documentIndex.clear();
             embeddingStore.removeAll();
             for (int index = 0; index < documentCount; index++) {
-                VectorDocument document = readDocument(inputStream);
+                VectorDocument document = VectorDocument.readFrom(inputStream);
                 store(document);
             }
         } catch (EOFException eof) {
@@ -192,7 +200,7 @@ public class LangChain4jVectorStore implements VectorStore {
         try (DataInputStream inputStream = new DataInputStream(new BufferedInputStream(stream))) {
             int documentCount = inputStream.readInt();
             for (int index = 0; index < documentCount; index++) {
-                VectorDocument document = readDocument(inputStream);
+                VectorDocument document = VectorDocument.readFrom(inputStream);
                 store(document);
             }
         } catch (EOFException eof) {
@@ -242,6 +250,35 @@ public class LangChain4jVectorStore implements VectorStore {
         return true;
     }
 
+    // Convert MetadataFilter to a LangChain4j Filter for server-side filtering.
+    private static Filter toLangChainFilter(MetadataFilter filter) {
+        if (filter == null) return null;
+
+        List<Filter> filters = new ArrayList<>();
+        if (filter.type() != null) {
+            filters.add(MetadataFilterBuilder.metadataKey("type").isEqualTo(filter.type()));
+        }
+        if (filter.villagerId() != null) {
+            filters.add(MetadataFilterBuilder.metadataKey("villagerId").isEqualTo(filter.villagerId()));
+        }
+        if (filter.playerId() != null) {
+            filters.add(MetadataFilterBuilder.metadataKey("playerId").isEqualTo(filter.playerId()));
+        }
+        if (filter.timestampAfter() != null) {
+            filters.add(MetadataFilterBuilder.metadataKey("timestamp").isGreaterThan(filter.timestampAfter()));
+        }
+        if (filter.timestampBefore() != null) {
+            filters.add(MetadataFilterBuilder.metadataKey("timestamp").isLessThan(filter.timestampBefore()));
+        }
+
+        if (filters.isEmpty()) return null;
+        Filter combined = filters.get(0);
+        for (int index = 1; index < filters.size(); index++) {
+            combined = new And(combined, filters.get(index));
+        }
+        return combined;
+    }
+
     // Rebuild the embedding store from the current index.
     private void rebuildEmbeddingStore() {
         embeddingStore.removeAll();
@@ -252,54 +289,4 @@ public class LangChain4jVectorStore implements VectorStore {
         }
     }
 
-    // Serialize a document to a binary output stream.
-    private static void writeDocument(DataOutputStream outputStream, VectorDocument document) throws IOException {
-        VectorMetadata metadata = document.metadata();
-        outputStream.writeUTF(document.id());
-        outputStream.writeUTF(document.content());
-        outputStream.writeInt(document.embedding().length);
-        for (float value : document.embedding()) {
-            outputStream.writeFloat(value);
-        }
-        outputStream.writeUTF(metadata.type());
-        outputStream.writeBoolean(metadata.villagerId() != null);
-        if (metadata.villagerId() != null) outputStream.writeUTF(metadata.villagerId());
-        outputStream.writeBoolean(metadata.playerId() != null);
-        if (metadata.playerId() != null) outputStream.writeUTF(metadata.playerId());
-        outputStream.writeLong(metadata.timestamp());
-        outputStream.writeInt(metadata.chunkIndex());
-        outputStream.writeInt(metadata.chunkTotal());
-    }
-
-    // Deserialize a document from a binary input stream.
-    private static VectorDocument readDocument(DataInputStream inputStream) throws IOException {
-        String id = inputStream.readUTF();
-        String content = inputStream.readUTF();
-        int embeddingLength = inputStream.readInt();
-        float[] embedding = new float[embeddingLength];
-        for (int index = 0; index < embeddingLength; index++) {
-            embedding[index] = inputStream.readFloat();
-        }
-        String type = inputStream.readUTF();
-        String villagerId = null;
-        if (inputStream.readBoolean()) {
-            villagerId = inputStream.readUTF();
-        }
-        String playerId = null;
-        if (inputStream.readBoolean()) {
-            playerId = inputStream.readUTF();
-        }
-        long timestamp = inputStream.readLong();
-        int chunkIndex = inputStream.readInt();
-        int chunkTotal = inputStream.readInt();
-        VectorMetadata metadata = new VectorMetadata(
-            type,
-            villagerId,
-            playerId,
-            timestamp,
-            chunkIndex,
-            chunkTotal
-        );
-        return new VectorDocument(id, content, embedding, metadata);
-    }
 }
