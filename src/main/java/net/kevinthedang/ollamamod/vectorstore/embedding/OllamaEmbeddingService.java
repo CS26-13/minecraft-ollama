@@ -24,10 +24,12 @@ public class OllamaEmbeddingService implements EmbeddingService {
     private final URI embedEndpoint;
     private final Gson gson = new Gson();
 
+    // Uses VectorStoreSettings defaults for base URL and model.
     public OllamaEmbeddingService() {
         this(VectorStoreSettings.ollamaBaseUrl, VectorStoreSettings.embeddingModel);
     }
 
+    // Creates an embedding service targeting a specific Ollama base URL and model.
     public OllamaEmbeddingService(String baseUrl, String model) {
         this.httpClient = HttpClient.newBuilder()
             .connectTimeout(Duration.ofSeconds(5))
@@ -38,6 +40,7 @@ public class OllamaEmbeddingService implements EmbeddingService {
 
     private final String model;
 
+    // Embed a single text input using Ollama's /api/embed endpoint.
     @Override
     public CompletableFuture<float[]> embed(String text) {
         Map<String, Object> requestBody = new HashMap<>();
@@ -61,6 +64,7 @@ public class OllamaEmbeddingService implements EmbeddingService {
             });
     }
 
+    // Embed a batch of text inputs using Ollama's /api/embed endpoint.
     @Override
     public CompletableFuture<List<float[]>> embedBatch(List<String> texts) {
         Map<String, Object> requestBody = new HashMap<>();
@@ -84,11 +88,13 @@ public class OllamaEmbeddingService implements EmbeddingService {
             });
     }
 
+    // Return the configured embedding dimension.
     @Override
     public int getDimension() {
         return VectorStoreSettings.embeddingDimension;
     }
 
+    // Check Ollama availability by hitting /api/tags.
     @Override
     public boolean isHealthy() {
         try {
@@ -104,6 +110,7 @@ public class OllamaEmbeddingService implements EmbeddingService {
         }
     }
 
+    // Extract the first embedding vector from the response JSON.
     private static float[] parseFirstEmbedding(String jsonResponse) {
         List<float[]> embeddings = parseEmbeddings(jsonResponse);
         if (embeddings.isEmpty()) {
@@ -112,6 +119,7 @@ public class OllamaEmbeddingService implements EmbeddingService {
         return embeddings.get(0);
     }
 
+    // Parse all embedding vectors from the response JSON.
     private static List<float[]> parseEmbeddings(String jsonResponse) {
         JsonObject root = JsonParser.parseString(jsonResponse).getAsJsonObject();
         JsonArray embeddings = root.getAsJsonArray("embeddings");
