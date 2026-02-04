@@ -127,7 +127,9 @@ public final class OllamaMod {
         public static void onWorldLoad(LevelEvent.Load event) {
             if (event.getLevel() instanceof ServerLevel serverLevel) {
                 VECTOR_STORE.loadAll(serverLevel.getServer().getWorldPath(LevelResource.ROOT));
-                VECTOR_STORE.loadSeedData();
+                if (VECTOR_STORE.count(net.kevinthedang.ollamamod.vectorstore.model.MetadataFilter.all()) == 0) {
+                    VECTOR_STORE.loadSeedData();
+                }
                 LOGGER.debug("Vector store loaded");
             }
         }

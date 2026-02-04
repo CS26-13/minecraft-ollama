@@ -80,7 +80,7 @@ public class LangChain4jVectorStore implements VectorStore {
             TextSegment segment = match.embedded();
             String id = segment.metadata().getString("id");
             VectorDocument document = documentIndex.get(id);
-            if (document != null && matchesFilter(document, filter)) {
+            if (document != null) {
                 results.add(document);
             }
         }
@@ -93,7 +93,7 @@ public class LangChain4jVectorStore implements VectorStore {
         return Optional.ofNullable(documentIndex.get(documentId));
     }
 
-    // Delete a document by id and rebuild the embedding store.
+    // Delete a document by id from the store and indexes.
     @Override
     public boolean delete(String documentId) {
         VectorDocument document = documentIndex.remove(documentId);

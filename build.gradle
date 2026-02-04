@@ -290,7 +290,18 @@ tasks.register('seedData', JavaExec) {
     mainClass = 'net.kevinthedang.ollamamod.tools.SeedDataGenerator'
 
     if (seedArgsProvider.isPresent()) {
-        args seedArgsProvider.get().split(' ')
+        args seedArgsProvider.get().tokenize()
+    }
+}
+
+tasks.register('printSeedToolClasspath') {
+    description = 'Print classpath entries needed to compile/run SeedDataGenerator manually.'
+    group = 'tools'
+    doLast {
+        def entries = []
+        entries.addAll(sourceSets.main.output.files)
+        entries.addAll(configurations.compileClasspath.files)
+        println entries.collect { it.absolutePath }.join(File.pathSeparator)
     }
 }
 

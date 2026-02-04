@@ -41,15 +41,23 @@ and use the correct classpath separator for your OS.
 **Windows (PowerShell):**
 ```bash
 ./gradlew classes
-javac -cp build/sourcesSets/main tools/SeedDataGenerator.java
-java -cp tools;build/sourcesSets/main net.kevinthedang.ollamamod.tools.SeedDataGenerator --ingest tools/seed-documents
+# Note: manual compilation requires the full dependency classpath.
+# This is brittle because any dependency change alters the classpath.
+$deps = ./gradlew -q printSeedToolClasspath
+$cp = "build/sourcesSets/main;$deps;tools"
+javac -cp $cp tools/SeedDataGenerator.java
+java -cp $cp net.kevinthedang.ollamamod.tools.SeedDataGenerator --ingest tools/seed-documents
 ```
 
 **macOS/Linux (bash):**
 ```bash
 ./gradlew classes
-javac -cp build/sourcesSets/main tools/SeedDataGenerator.java
-java -cp tools:build/sourcesSets/main net.kevinthedang.ollamamod.tools.SeedDataGenerator --ingest tools/seed-documents
+# Note: manual compilation requires the full dependency classpath.
+# This is brittle because any dependency change alters the classpath.
+deps=$(./gradlew -q printSeedToolClasspath)
+cp="build/sourcesSets/main:$deps:tools"
+javac -cp "$cp" tools/SeedDataGenerator.java
+java -cp "$cp" net.kevinthedang.ollamamod.tools.SeedDataGenerator --ingest tools/seed-documents
 ```
 
 ### Other commands

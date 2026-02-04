@@ -113,6 +113,11 @@ public class VectorStoreService {
         return embeddingService.isHealthy();
     }
 
+    // Count documents matching a metadata filter.
+    public int count(MetadataFilter filter) {
+        return store.count(filter);
+    }
+
     // Read a UTF-8 file into a string.
     private String readFile(Path path) {
         try {
