@@ -140,7 +140,6 @@ try {
 
     // brewing ingredients
     console.log('\nExtracting brewing ingredients...');
-    const potions = [];
     const brewingIngredients = [];
 
     if (mc.items) {
@@ -225,54 +224,22 @@ try {
     console.log('\n' + '='.repeat(60));
     console.log('Saving data to JSON files...');
 
-    fs.writeFileSync(
-        path.join(outputDir, 'crafting_recipes.json'),
-        JSON.stringify(craftingRecipes, null, 2)
-    );
-    console.log('✓ Saved crafting_recipes.json');
+    function saveData(filename, data) {
+        fs.writeFileSync(
+            path.join(outputDir, filename),
+            JSON.stringify(data, null, 2)
+        );
+        console.log(`✓ Saved ${filename}`);
+    }
 
-    fs.writeFileSync(
-        path.join(outputDir, 'effects.json'),
-        JSON.stringify(effects, null, 2)
-    );
-    console.log('✓ Saved effects.json');
-
-    fs.writeFileSync(
-        path.join(outputDir, 'items.json'),
-        JSON.stringify(items, null, 2)
-    );
-    console.log('✓ Saved items.json');
-
-    fs.writeFileSync(
-        path.join(outputDir, 'foods.json'),
-        JSON.stringify(foods, null, 2)
-    );
-    console.log('✓ Saved foods.json');
-
-    fs.writeFileSync(
-        path.join(outputDir, 'brewing_ingredients.json'),
-        JSON.stringify(brewingIngredients, null, 2)
-    );
-    console.log('✓ Saved brewing_ingredients.json');
-
-    fs.writeFileSync(
-        path.join(outputDir, 'biomes.json'),
-        JSON.stringify(biomes, null, 2)
-    );
-    console.log('✓ Saved biomes.json');
-
-    fs.writeFileSync(
-        path.join(outputDir, 'enchantments.json'),
-        JSON.stringify(enchantments, null, 2)
-    );
-    console.log('✓ Saved enchantments.json');
-
-    fs.writeFileSync(
-        path.join(outputDir, 'entities.json'),
-        JSON.stringify(entities, null, 2)
-    );
-    console.log('✓ Saved entities.json');
-
+    saveData('crafting_recipes.json', craftingRecipes);
+    saveData('effects.json', effects)
+    saveData('items.json', items)
+    saveData('foods.json', foods)
+    saveData('brewing_ingredients.json', brewingIngredients)
+    saveData('biomes.json', biomes)
+    saveData('enchantments.json', enchantments)
+    saveData('entities.json', entities)
 
     console.log('\n' + '='.repeat(60));
     console.log('Data extraction complete!');
