@@ -67,6 +67,10 @@ public class ForgeWorldContextTool implements WorldContextTool {
         Villager anchorVillager = findNearestVillager(level, player.blockPosition(), 12);
         BlockPos anchorPos = (anchorVillager != null) ? anchorVillager.blockPosition() : player.blockPosition();
 
+        // BASE CONTEXT: always include immediate blocks around the anchor
+        facts.addAll(queryImmediateBlocks(level, anchorPos, player.getDirection()));
+
+
         if (anchorVillager != null) {
             facts.add(fact("Anchor villager position: x=" + anchorPos.getX() + ", y=" + anchorPos.getY() + ", z=" + anchorPos.getZ(),
                     "forge.villager.anchor", 0.95, nowTtl));
@@ -76,20 +80,17 @@ public class ForgeWorldContextTool implements WorldContextTool {
         String msg = playerMessage == null ? "" : playerMessage.toLowerCase(Locale.ROOT);
 
         if (wantsMobs(msg)) {
-            facts.addAll(queryNearbyMobs(level, player, ENTITY_RADIUS));
+            addCapped(facts, queryNearbyMobs(level, player, ENTITY_RADIUS));
         }
 
         if (wantsBlocks(msg)) {
-            facts.addAll(queryNearbyBlocks(level, anchorPos, BLOCK_SCAN_RADIUS));
-        }
-
-        if (wantsImmediateBlocks(msg)) {
-            facts.addAll(queryImmediateBlocks(level, anchorPos, player.getDirection()));
+            addCapped(facts, queryNearbyBlocks(level, anchorPos, BLOCK_SCAN_RADIUS));
         }
 
         if (wantsStructures(msg)) {
-            facts.addAll(queryNearbyStructuresBestEffort(mc, level, p));
+            addCapped(facts, queryNearbyStructuresBestEffort(mc, level, p));
         }
+
 
         // Enforce cap + ensure >=3
         if (facts.size() < 3) {
@@ -362,6 +363,17 @@ public class ForgeWorldContextTool implements WorldContextTool {
     private static List<WorldFact> trim(List<WorldFact> facts) {
         if (facts.size() <= MAX_FACTS) return facts;
         return facts.subList(0, MAX_FACTS);
+    }
+
+    private static void addCapped(List<WorldFact> dest, List<WorldFact> toAdd) {
+        if (toAdd == null || toAdd.isEmpty()) return;
+
+        int remaining = MAX_FACTS - dest.size();
+        if (remaining <= 0) return;
+
+        for (int i = 0; i < toAdd.size() && i < remaining; i++) {
+            dest.add(toAdd.get(i));
+        }
     }
 
     private static String blockId(Level level, BlockPos pos) {
