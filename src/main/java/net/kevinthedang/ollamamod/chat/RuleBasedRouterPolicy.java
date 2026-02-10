@@ -20,8 +20,8 @@ public class RuleBasedRouterPolicy implements RouterPolicy {
         // depth is reserved for future (0=none, 1=low, 2=high)
         int depth = wantsRetriever ? 1 : 0;
 
-        // For M3 and M4, keep memory/retrieval disabled even if router predicts it.
-        return new RoutePlan(wantsWorld, false, false, depth);
+        // Enable memory/retrieval routing based on detected intent.
+        return new RoutePlan(wantsWorld, wantsMemory, wantsRetriever, depth);
     }
 
     private static boolean containsAny(String haystack, String... needles) {

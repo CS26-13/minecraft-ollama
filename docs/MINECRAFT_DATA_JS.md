@@ -29,13 +29,13 @@ This will install the required `minecraft-data` module and its dependencies.
 Once the modules are installed, you can run either script using Node.js:
 
 ```bash
-node brewing_recipes.js
+node tools/brewing_recipes.js
 ```
 
 or
 
 ```bash
-node minecraft_data_extractor.js
+node tools/minecraft_data_extractor.js
 ```
 
 ## Output

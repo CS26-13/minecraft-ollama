@@ -34,6 +34,9 @@ move_build.sh
 modsigning.jks
 keystore.properties
 AGENTS.md
+CLAUDE.md
+tools/minecraft_data_output/
+node_modules/minecraft-data/
 
 # vector store seed data
 src/main/resources/ollamamod/seed/documents.store

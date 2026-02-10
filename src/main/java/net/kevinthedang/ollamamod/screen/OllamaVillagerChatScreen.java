@@ -151,6 +151,10 @@ public class OllamaVillagerChatScreen extends Screen {
 
         ensurePersonaResolved();
 
+        // Clear previous UI messages to avoid duplicates when init() is called again (e.g., window resize)
+        this.chatMessages.clear();
+        this.scrollOffset = 0;
+
         List<ChatMessage> history = OllamaMod.CHAT_SERVICE.getHistory(conversationId);
         for (ChatMessage msg : history) {
             appendToChatLog(msg);

@@ -162,8 +162,9 @@ public class JsonChunker extends Chunker {
         List<String> chunks = new ArrayList<>();
         StringBuilder currentChunkBuilder = new StringBuilder();
         for (JsonElement element : elements) {
-            String elementText = gson.toJson(element);
-            if (currentChunkBuilder.length() + elementText.length() > maxChunkSize
+            String elementText = labeledText(element);
+            int separatorLen = currentChunkBuilder.length() > 0 ? 1 : 0;
+            if (currentChunkBuilder.length() + separatorLen + elementText.length() > maxChunkSize
                 && currentChunkBuilder.length() > 0) {
                 chunks.add(currentChunkBuilder.toString());
                 currentChunkBuilder = new StringBuilder();
@@ -177,5 +178,47 @@ public class JsonChunker extends Chunker {
             chunks.add(currentChunkBuilder.toString());
         }
         return chunks;
+    }
+
+    // Wrap a JSON element with a human-readable label prefix for better embeddings.
+    private String labeledText(JsonElement element) {
+        String json = gson.toJson(element);
+        String label = extractLabel(element);
+        if (label == null) {
+            return json;
+        }
+        return label + ": " + json;
+    }
+
+    // Extract a human-readable label from a JSON object for embedding quality.
+    // Returns null if no recognizable pattern is found.
+    String extractLabel(JsonElement element) {
+        if (!element.isJsonObject()) {
+            return null;
+        }
+        JsonObject obj = element.getAsJsonObject();
+
+        // Recipe pattern: resultingItem.item + type
+        if (obj.has("resultingItem") && obj.has("type")) {
+            JsonElement resultingItem = obj.get("resultingItem");
+            if (resultingItem.isJsonObject()) {
+                JsonObject ri = resultingItem.getAsJsonObject();
+                if (ri.has("item")) {
+                    String item = ri.get("item").getAsString().replace("_", " ");
+                    String type = obj.get("type").getAsString();
+                    return type + " recipe for " + item;
+                }
+            }
+        }
+
+        // Item/entity pattern: prefer displayName over name
+        if (obj.has("displayName")) {
+            return obj.get("displayName").getAsString();
+        }
+        if (obj.has("name")) {
+            return obj.get("name").getAsString();
+        }
+
+        return null;
     }
 }
