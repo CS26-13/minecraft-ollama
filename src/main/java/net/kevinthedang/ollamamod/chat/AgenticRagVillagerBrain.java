@@ -27,6 +27,7 @@ import java.util.concurrent.CompletableFuture;
 public class AgenticRagVillagerBrain implements VillagerBrain {
 
 	private static final int MAX_TOOL_ITERATIONS = 3;
+	private static final List<String> INNER_ARG_KEYS = List.of("content", "value", "query", "text");
 
 	private final HttpClient client;
 	private final URI chatUri;
@@ -409,13 +410,9 @@ public class AgenticRagVillagerBrain implements VillagerBrain {
 		}
 
 		return CompletableFuture.allOf(futures.toArray(new CompletableFuture[0]))
-				.thenApply(v -> {
-					List<Map<String, Object>> results = new ArrayList<>();
-					for (CompletableFuture<Map<String, Object>> f : futures) {
-						results.add(f.join());
-					}
-					return results;
-				});
+				.thenApply(v -> futures.stream()
+						.map(CompletableFuture::join)
+						.toList());
 	}
 
 	// Formats vector store results into a readable string for the LLM.
@@ -451,7 +448,7 @@ public class AgenticRagVillagerBrain implements VillagerBrain {
 		}
 		if (value.isJsonObject()) {
 			JsonObject obj = value.getAsJsonObject();
-			for (String innerKey : List.of("content", "value", "query", "text")) {
+			for (String innerKey : INNER_ARG_KEYS) {
 				if (obj.has(innerKey) && obj.get(innerKey).isJsonPrimitive()) {
 					return obj.get(innerKey).getAsString();
 				}

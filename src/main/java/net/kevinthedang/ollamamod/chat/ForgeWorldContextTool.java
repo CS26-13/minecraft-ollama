@@ -365,18 +365,11 @@ public class ForgeWorldContextTool implements WorldContextTool {
     // Converts a biome resource ID like "minecraft:plains" to "Plains"
     private static String prettyBiomeName(String rawBiome) {
         if (rawBiome == null || rawBiome.isBlank()) return "unknown";
-        // Strip namespace (e.g., "minecraft:dark_forest" → "dark_forest")
         String name = rawBiome.contains(":") ? rawBiome.substring(rawBiome.indexOf(':') + 1) : rawBiome;
-        // Convert underscores to spaces and capitalize words
-        String[] words = name.split("_");
-        StringBuilder sb = new StringBuilder();
-        for (String w : words) {
-            if (!w.isEmpty()) {
-                if (sb.length() > 0) sb.append(' ');
-                sb.append(Character.toUpperCase(w.charAt(0))).append(w.substring(1));
-            }
-        }
-        return sb.toString();
+        return Arrays.stream(name.split("_"))
+                .filter(w -> !w.isEmpty())
+                .map(w -> Character.toUpperCase(w.charAt(0)) + w.substring(1))
+                .collect(Collectors.joining(" "));
     }
 
    // Routing route

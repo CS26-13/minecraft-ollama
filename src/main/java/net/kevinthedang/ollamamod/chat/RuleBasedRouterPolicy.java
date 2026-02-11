@@ -12,7 +12,7 @@ public class RuleBasedRouterPolicy implements RouterPolicy {
             "what time", "time is it", "weather", "raining", "sunny", "thundering",
             "is it day", "is it night",
             // Greetings / farewells
-            "hello", "hey", "hi ", "howdy", "good morning", "good evening",
+            "hello", "hey", "hi", "howdy", "good morning", "good evening",
             "goodbye", "bye", "see you", "farewell",
             // Simple convos
             "how are you", "what's up", "who are you", "what is your name",

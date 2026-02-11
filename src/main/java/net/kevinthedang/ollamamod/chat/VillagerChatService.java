@@ -64,17 +64,7 @@ public class VillagerChatService {
                             if (villagerSoundPos != null && reply != null && !reply.isEmpty()) {
                                 playVillagerReplySound(villagerSoundPos);
                             }
-                            // Persist memory of this exchange to the vector store (best-effort)
-                            try {
-                                String playerId = (mc.player != null) ? mc.player.getUUID().toString() : "local-player";
-                                String transcript = "Player: " + (messageText == null ? "" : messageText) + "\n" +
-                                        "Villager: " + (reply == null ? "" : reply);
-                                net.kevinthedang.ollamamod.OllamaMod.VECTOR_STORE
-                                        .storeMemory(transcript, context.conversationId().toString(), playerId)
-                                        .exceptionally(t -> { OllamaMod.LOGGER.debug("storeMemory failed", t); return null; });
-                            } catch (Throwable t) {
-                                OllamaMod.LOGGER.debug("storeMemory threw", t);
-                            }
+                            persistMemory(messageText, reply, context);
                             ui.onVillagerReplyFinished(reply);
                         });
                     });
@@ -100,17 +90,7 @@ public class VillagerChatService {
                     Minecraft mc = Minecraft.getInstance();
                     mc.execute(() -> {
                         historyManager.append(conversationId, new ChatMessage(ChatRole.VILLAGER, fullReply));
-                        // Persist memory of this exchange to the vector store (best-effort)
-                        try {
-                            String playerId = (mc.player != null) ? mc.player.getUUID().toString() : "local-player";
-                            String transcript = "Player: " + (messageText == null ? "" : messageText) + "\n" +
-                                    "Villager: " + (fullReply == null ? "" : fullReply);
-                            net.kevinthedang.ollamamod.OllamaMod.VECTOR_STORE
-                                    .storeMemory(transcript, context.conversationId().toString(), playerId)
-                                    .exceptionally(t -> { OllamaMod.LOGGER.debug("storeMemory failed", t); return null; });
-                        } catch (Throwable t) {
-                            OllamaMod.LOGGER.debug("storeMemory threw", t);
-                        }
+                        persistMemory(messageText, fullReply, context);
                         ui.onVillagerReplyFinished(fullReply);
                     });
                 }
@@ -130,9 +110,22 @@ public class VillagerChatService {
         }
     }
 
-    /**
-     * Plays a short villager talking sound when a response appears
-     */
+    // Persists the player-villager exchange to the vector store for future memory recall.
+    private static void persistMemory(String playerMessage, String villagerReply, VillagerBrain.Context context) {
+        try {
+            Minecraft mc = Minecraft.getInstance();
+            String playerId = (mc.player != null) ? mc.player.getUUID().toString() : "local-player";
+            String transcript = "Player: " + (playerMessage == null ? "" : playerMessage) + "\n" +
+                    "Villager: " + (villagerReply == null ? "" : villagerReply);
+            OllamaMod.VECTOR_STORE
+                    .storeMemory(transcript, context.conversationId().toString(), playerId)
+                    .exceptionally(t -> { OllamaMod.LOGGER.debug("storeMemory failed", t); return null; });
+        } catch (Throwable t) {
+            OllamaMod.LOGGER.debug("storeMemory threw", t);
+        }
+    }
+
+    // Plays a short villager talking sound when a response appears.
     private void playVillagerReplySound(Vec3 pos) {
         Minecraft mc = Minecraft.getInstance();
         if (mc.level == null) return;

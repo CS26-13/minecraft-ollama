@@ -107,11 +107,8 @@ public class OllamaVillagerChatScreen extends Screen {
 
             @Override
             public boolean keyPressed(int keyCode, int scanCode, int modifiers) {
-                System.out.println("Screen keyPressed: keyCode=" + keyCode + ", scanCode=" + scanCode);
-
                 // Some versions deliver Enter here
                 if (keyCode == GLFW.GLFW_KEY_ENTER || keyCode == GLFW.GLFW_KEY_KP_ENTER) {
-                    System.out.println("ENTER detected, sending message");
                     OllamaVillagerChatScreen.this.sendMessage();
                     return true; // consume Enter
                 }
