@@ -34,7 +34,7 @@ public class OllamaVillagerBrain implements VillagerBrain {
         List<Map<String, String>> messages = buildMessages(context, history, playerMessage);
 
         Map<String, Object> requestBody = new HashMap<>();
-        requestBody.put("model", OllamaSettings.model);
+        requestBody.put("model", OllamaSettings.chatModel);
         requestBody.put("stream", false); 
         requestBody.put("messages", messages);
 
@@ -65,7 +65,7 @@ public class OllamaVillagerBrain implements VillagerBrain {
         List<Map<String, String>> messages = buildMessages(context, history, playerMessage);
 
         Map<String, Object> requestBody = new HashMap<>();
-        requestBody.put("model", OllamaSettings.model);
+        requestBody.put("model", OllamaSettings.chatModel);
         requestBody.put("stream", true);
         requestBody.put("messages", messages);
 

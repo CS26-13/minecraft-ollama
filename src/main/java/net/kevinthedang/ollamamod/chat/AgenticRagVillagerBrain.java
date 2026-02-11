@@ -54,8 +54,23 @@ public class AgenticRagVillagerBrain implements VillagerBrain {
 	@Override
 	public CompletableFuture<String> getReply(Context context, List<ChatMessage> history, String playerMessage) {
 		WorldFactBundle worldFacts = worldContextTool.collect(context, history, playerMessage);
+		RoutePlan plan = router.plan(context, history, playerMessage);
+		System.out.println("[AgenticRAG] Route: useRetriever=" + plan.useRetriever() + " useMemory=" + plan.useMemory());
 
-		// Speculatively pre-fetch knowledge and memory in parallel
+		List<Map<String, Object>> messages = toObjectMaps(
+				promptComposer.buildMessages(context, history, playerMessage, worldFacts));
+
+		if (!plan.useRetriever()) {
+			// Fast path: FACTS + history only, no tools, fast model
+			return sendNonStreaming(messages, false, OllamaSettings.chatModel).thenApply(responseBody -> {
+				JsonObject root = JsonParser.parseString(responseBody).getAsJsonObject();
+				String content = extractContent(root.getAsJsonObject("message"));
+				System.out.println("[AgenticRAG] Fast path reply (chatModel, no tools)");
+				return content;
+			});
+		}
+
+		// Tool path: pre-fetch context, tools enabled, capable model
 		CompletableFuture<List<VectorDocument>> docsFut = OllamaMod.VECTOR_STORE
 				.queryDocuments(playerMessage, VectorStoreSettings.defaultTopK)
 				.exceptionally(e -> List.of());
@@ -64,19 +79,14 @@ public class AgenticRagVillagerBrain implements VillagerBrain {
 				.exceptionally(e -> List.of());
 
 		return CompletableFuture.allOf(docsFut, memFut).thenCompose(v -> {
-			List<Map<String, Object>> messages = toObjectMaps(
-					promptComposer.buildMessages(context, history, playerMessage, worldFacts));
-
-			// Inject pre-fetched results so the LLM has context in a single call
 			injectPrefetchedContext(messages, docsFut.join(), memFut.join());
-
 			return toolLoop(messages, context, 0);
 		});
 	}
 
 	// Recursive tool-calling loop: sends messages to Ollama, executes any tool calls, and repeats.
 	private CompletableFuture<String> toolLoop(List<Map<String, Object>> messages, Context context, int iteration) {
-		return sendNonStreaming(messages).thenCompose(responseBody -> {
+		return sendNonStreaming(messages, true, OllamaSettings.toolModel).thenCompose(responseBody -> {
 			JsonObject root = JsonParser.parseString(responseBody).getAsJsonObject();
 			JsonObject message = root.getAsJsonObject("message");
 
@@ -103,10 +113,22 @@ public class AgenticRagVillagerBrain implements VillagerBrain {
 	@Override
 	public void getReplyStreaming(Context context, List<ChatMessage> history, String playerMessage, StreamCallbacks callbacks) {
 		WorldFactBundle worldFacts = worldContextTool.collect(context, history, playerMessage);
+		RoutePlan plan = router.plan(context, history, playerMessage);
 		System.out.println("[AgenticRAG] facts=" + worldFacts.facts().size()
 				+ " first=" + (worldFacts.facts().isEmpty() ? "none" : worldFacts.facts().get(0).factText()));
+		System.out.println("[AgenticRAG] Route: useRetriever=" + plan.useRetriever() + " useMemory=" + plan.useMemory());
 
-		// Speculatively pre-fetch knowledge and memory in parallel with prompt building
+		List<Map<String, Object>> messages = toObjectMaps(
+				promptComposer.buildMessages(context, history, playerMessage, worldFacts));
+
+		if (!plan.useRetriever()) {
+			// Fast path: FACTS + history only, no tools, stream directly with fast model
+			System.out.println("[AgenticRAG] Fast path (chatModel, no tools, streaming)");
+			streamFinalReply(messages, callbacks, OllamaSettings.chatModel);
+			return;
+		}
+
+		// Tool path: pre-fetch context, tools enabled, capable model
 		CompletableFuture<List<VectorDocument>> docsFut = OllamaMod.VECTOR_STORE
 				.queryDocuments(playerMessage, VectorStoreSettings.defaultTopK)
 				.exceptionally(e -> List.of());
@@ -118,22 +140,18 @@ public class AgenticRagVillagerBrain implements VillagerBrain {
 			List<VectorDocument> docs = docsFut.join();
 			List<VectorDocument> memories = memFut.join();
 
-			List<Map<String, Object>> messages = toObjectMaps(
-					promptComposer.buildMessages(context, history, playerMessage, worldFacts));
-
-			// Inject pre-fetched results so the LLM usually answers in 1 call
 			injectPrefetchedContext(messages, docs, memories);
-			System.out.println("[AgenticRAG] Pre-fetched docs=" + docs.size() + " memories=" + memories.size());
+			System.out.println("[AgenticRAG] Tool path: pre-fetched docs=" + docs.size() + " memories=" + memories.size());
 
-			// Single non-streaming call with tools (tools still available as fallback)
-			return sendNonStreaming(messages).thenCompose(responseBody -> {
+			// Non-streaming call with tools using capable model
+			return sendNonStreaming(messages, true, OllamaSettings.toolModel).thenCompose(responseBody -> {
 				JsonObject root = JsonParser.parseString(responseBody).getAsJsonObject();
 				JsonObject message = root.getAsJsonObject("message");
 
 				if (!hasToolCalls(message)) {
 					// LLM answered directly using pre-fetched context — 1 LLM call total
 					String content = extractContent(message);
-					System.out.println("[AgenticRAG] Direct reply (1 LLM call)");
+					System.out.println("[AgenticRAG] Direct reply (1 LLM call, toolModel)");
 					callbacks.onDelta(content);
 					callbacks.onCompleted(content);
 					return CompletableFuture.completedFuture((Void) null);
@@ -150,7 +168,7 @@ public class AgenticRagVillagerBrain implements VillagerBrain {
 					}
 					return toolLoopNonStreaming(messages, context, 1);
 				}).thenAccept(resolvedMessages -> {
-					streamFinalReply(resolvedMessages, callbacks);
+					streamFinalReply(resolvedMessages, callbacks, OllamaSettings.toolModel);
 				});
 			});
 		}).exceptionally(e -> {
@@ -163,7 +181,7 @@ public class AgenticRagVillagerBrain implements VillagerBrain {
 	private CompletableFuture<List<Map<String, Object>>> toolLoopNonStreaming(
 			List<Map<String, Object>> messages, Context context, int iteration) {
 
-		return sendNonStreaming(messages).thenCompose(responseBody -> {
+		return sendNonStreaming(messages, true, OllamaSettings.toolModel).thenCompose(responseBody -> {
 			JsonObject root = JsonParser.parseString(responseBody).getAsJsonObject();
 			JsonObject message = root.getAsJsonObject("message");
 
@@ -221,15 +239,16 @@ public class AgenticRagVillagerBrain implements VillagerBrain {
 			sb.append('\n');
 		}
 		if (sb.length() > 0) {
-			sb.append("IMPORTANT: Answer using the context above. Do NOT call tools if the answer is already here.\n");
-			sb.append("Only use search_knowledge or recall_memory if the context above does not contain what the player asked about.\n");
+			sb.append("IMPORTANT: Answer the player's question in plain natural language using FACTS and the context above.\n");
+			sb.append("Do NOT call tools if the answer is already in FACTS or the context above.\n");
+			sb.append("Only use search_knowledge or recall_memory if neither FACTS nor the context above answers the question.\n");
 		}
 		return sb.toString().trim();
 	}
 
 	// Sends a final streaming call without tools to generate the synthesized response.
-	private void streamFinalReply(List<Map<String, Object>> messages, StreamCallbacks callbacks) {
-		Map<String, Object> requestBody = buildOllamaRequestBody(messages, true, false);
+	private void streamFinalReply(List<Map<String, Object>> messages, StreamCallbacks callbacks, String model) {
+		Map<String, Object> requestBody = buildOllamaRequestBody(messages, true, false, model);
 		String json = gson.toJson(requestBody);
 
 		HttpRequest request = HttpRequest.newBuilder()
@@ -286,9 +305,9 @@ public class AgenticRagVillagerBrain implements VillagerBrain {
 		t.start();
 	}
 
-	// Sends a non-streaming request to Ollama with tools enabled.
-	private CompletableFuture<String> sendNonStreaming(List<Map<String, Object>> messages) {
-		Map<String, Object> requestBody = buildOllamaRequestBody(messages, false, true);
+	// Sends a non-streaming request to Ollama.
+	private CompletableFuture<String> sendNonStreaming(List<Map<String, Object>> messages, boolean includeTools, String model) {
+		Map<String, Object> requestBody = buildOllamaRequestBody(messages, false, includeTools, model);
 		String json = gson.toJson(requestBody);
 
 		HttpRequest request = HttpRequest.newBuilder()
@@ -309,9 +328,9 @@ public class AgenticRagVillagerBrain implements VillagerBrain {
 
 	// Builds the JSON request body for the Ollama /api/chat endpoint.
 	private Map<String, Object> buildOllamaRequestBody(
-			List<Map<String, Object>> messages, boolean stream, boolean includeTools) {
+			List<Map<String, Object>> messages, boolean stream, boolean includeTools, String model) {
 		Map<String, Object> body = new HashMap<>();
-		body.put("model", OllamaSettings.model);
+		body.put("model", model);
 		body.put("stream", stream);
 		body.put("messages", messages);
 		if (includeTools) {

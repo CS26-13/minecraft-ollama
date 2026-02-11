@@ -46,19 +46,19 @@ public class ForgeWorldContextTool implements WorldContextTool {
         Level level = mc.level;
         var player = mc.player;
 
-        // Position facts
+        // Position facts — lead with human-readable location, keep raw coords available
         BlockPos p = player.blockPosition();
-        facts.add(fact("Player coordinates: x=" + p.getX() + ", y=" + p.getY() + ", z=" + p.getZ(),
-                "forge.coords", 1.0, nowTtl));
+        String biome = prettyBiomeName(tryGetBiomeName(level, p));
+        String dimension = prettyDimension(level.dimension());
 
-        facts.add(fact("Dimension: " + prettyDimension(level.dimension()),
-                "forge.dimension", 1.0, slowTtl));
+        facts.add(fact("Player is in a " + biome + " area in the " + dimension,
+                "forge.location", 1.0, slowTtl));
+
+        facts.add(fact("Player exact coordinates: x=" + p.getX() + ", y=" + p.getY() + ", z=" + p.getZ(),
+                "forge.coords", 0.6, nowTtl));
 
         facts.add(fact(prettyTime(level),
                 "forge.time", 1.0, nowTtl));
-
-        facts.add(fact("Biome: " + tryGetBiomeName(level, p),
-                "forge.biome", 0.9, slowTtl));
 
         facts.add(fact(prettyWeather(level),
                 "forge.weather", 0.95, nowTtl));
@@ -292,25 +292,51 @@ public class ForgeWorldContextTool implements WorldContextTool {
     }
 
     // Utlities functions
+    // Converts Minecraft ticks to a human-readable time of day.
+    // Minecraft day starts at tick 0 = 6:00 AM. Each tick = 3.6 real seconds.
     private static String prettyTime(Level level) {
         long dayTime = level.getDayTime();
         long tod = dayTime % 24000L;
-        String part = (tod >= 13000L && tod <= 23000L) ? "Night" : "Day";
-        return "Time: " + part + " (tick=" + tod + " / 24000)";
+
+        // Convert ticks to 24h clock: tick 0 = 6:00, tick 6000 = 12:00, tick 18000 = 0:00
+        int totalMinutes = (int) ((tod * 60) / 1000);  // ticks to in-game minutes
+        int hour24 = (6 + totalMinutes / 60) % 24;
+        int minute = totalMinutes % 60;
+
+        // 12-hour format
+        String ampm = hour24 >= 12 ? "PM" : "AM";
+        int hour12 = hour24 % 12;
+        if (hour12 == 0) hour12 = 12;
+        String clock = String.format(Locale.ROOT, "%d:%02d %s", hour12, minute, ampm);
+
+        // Time-of-day description
+        String period;
+        if (tod < 1000) period = "Early morning";
+        else if (tod < 6000) period = "Morning";
+        else if (tod < 6500) period = "Midday";
+        else if (tod < 11500) period = "Afternoon";
+        else if (tod < 13000) period = "Evening";
+        else if (tod < 14000) period = "Dusk";
+        else if (tod < 22000) period = "Night";
+        else period = "Dawn";
+
+        return "Time of day: " + period + ", around " + clock;
     }
 
     private static String prettyWeather(Level level) {
         boolean rain = level.isRaining();
         boolean thunder = level.isThundering();
         float rainLevel = level.getRainLevel(1.0F);
-        float thunderLevel = level.getThunderLevel(1.0F);
 
-        String state;
-        if (thunder) state = "Thunderstorm";
-        else if (rain) state = "Raining";
-        else state = "Clear";
-
-        return "Weather: " + state + " (rainLevel=" + round2(rainLevel) + ", thunderLevel=" + round2(thunderLevel) + ")";
+        if (thunder) {
+            return "Weather: A thunderstorm is raging with lightning";
+        } else if (rain) {
+            if (rainLevel > 0.7f) return "Weather: Heavy rain";
+            else if (rainLevel > 0.3f) return "Weather: Steady rain";
+            else return "Weather: Light rain";
+        } else {
+            return "Weather: Clear skies";
+        }
     }
 
     private static String tryGetBiomeName(Level level, BlockPos pos) {
@@ -327,7 +353,30 @@ public class ForgeWorldContextTool implements WorldContextTool {
     private static String prettyDimension(ResourceKey<Level> key) {
         if (key == null) return "Unknown";
         ResourceLocation loc = key.location();
-        return loc == null ? "Unknown" : loc.toString();
+        if (loc == null) return "Unknown";
+        return switch (loc.toString()) {
+            case "minecraft:overworld" -> "Overworld";
+            case "minecraft:the_nether" -> "Nether";
+            case "minecraft:the_end" -> "End";
+            default -> loc.getPath();
+        };
+    }
+
+    // Converts a biome resource ID like "minecraft:plains" to "Plains"
+    private static String prettyBiomeName(String rawBiome) {
+        if (rawBiome == null || rawBiome.isBlank()) return "unknown";
+        // Strip namespace (e.g., "minecraft:dark_forest" → "dark_forest")
+        String name = rawBiome.contains(":") ? rawBiome.substring(rawBiome.indexOf(':') + 1) : rawBiome;
+        // Convert underscores to spaces and capitalize words
+        String[] words = name.split("_");
+        StringBuilder sb = new StringBuilder();
+        for (String w : words) {
+            if (!w.isEmpty()) {
+                if (sb.length() > 0) sb.append(' ');
+                sb.append(Character.toUpperCase(w.charAt(0))).append(w.substring(1));
+            }
+        }
+        return sb.toString();
     }
 
    // Routing route
