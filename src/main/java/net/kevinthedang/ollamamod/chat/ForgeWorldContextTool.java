@@ -366,14 +366,15 @@ public class ForgeWorldContextTool implements WorldContextTool {
     }
 
     private static void addCapped(List<WorldFact> dest, List<WorldFact> toAdd) {
-        if (toAdd == null || toAdd.isEmpty()) return;
+        if (toAdd == null || toAdd.isEmpty()) {
+            return;
+        }
 
         int remaining = MAX_FACTS - dest.size();
-        if (remaining <= 0) return;
-
-        for (int i = 0; i < toAdd.size() && i < remaining; i++) {
-            dest.add(toAdd.get(i));
+        if (remaining <= 0) {
+            return;
         }
+        dest.addAll(toAdd.subList(0, Math.min(toAdd.size(), remaining)));
     }
 
     private static String blockId(Level level, BlockPos pos) {
