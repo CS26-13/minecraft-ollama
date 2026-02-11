@@ -3,6 +3,7 @@ package net.kevinthedang.ollamamod.vectorstore;
 import net.kevinthedang.ollamamod.vectorstore.chunker.ConversationChunker;
 import net.kevinthedang.ollamamod.vectorstore.chunker.JsonChunker;
 import net.kevinthedang.ollamamod.vectorstore.chunker.TextChunker;
+import net.kevinthedang.ollamamod.vectorstore.embedding.CachingEmbeddingService;
 import net.kevinthedang.ollamamod.vectorstore.embedding.EmbeddingService;
 import net.kevinthedang.ollamamod.vectorstore.embedding.OllamaEmbeddingService;
 import net.kevinthedang.ollamamod.vectorstore.model.MetadataFilter;
@@ -105,6 +106,13 @@ public class VectorStoreService {
             }
         } catch (java.io.IOException exception) {
             throw new RuntimeException("Failed to load seed data", exception);
+        }
+    }
+
+    // Clear the per-turn embedding cache if the service supports it.
+    public void clearEmbeddingCache() {
+        if (embeddingService instanceof CachingEmbeddingService cachingSvc) {
+            cachingSvc.clearCache();
         }
     }
 

@@ -9,8 +9,8 @@ public final class VectorStoreSettings {
     public static final int chunkSize = 512;
     public static final int chunkOverlap = 64;
 
-    public static final int defaultTopK = 5;
-    public static final double defaultMinScore = 0.5;
+    public static final int defaultTopK = 3;
+    public static final double defaultMinScore = 0.65;
 
     public static final String dataDirectory = "ollamamod/vectorstore";
     public static final String storeFile = "vectors.store";

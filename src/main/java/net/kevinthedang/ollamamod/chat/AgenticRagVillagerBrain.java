@@ -37,6 +37,11 @@ public class AgenticRagVillagerBrain implements VillagerBrain {
 	private final WorldContextTool worldContextTool;
 	private final PromptComposer promptComposer;
 
+	// Per-turn pre-fetch state for short-circuiting redundant tool calls
+	private volatile String prefetchedQuery;
+	private volatile List<VectorDocument> prefetchedDocs;
+	private volatile List<VectorDocument> prefetchedMemories;
+
 	public AgenticRagVillagerBrain() {
 		this(new RuleBasedRouterPolicy(), new ForgeWorldContextTool(), new PromptComposerV1());
 	}
@@ -54,6 +59,11 @@ public class AgenticRagVillagerBrain implements VillagerBrain {
 
 	@Override
 	public CompletableFuture<String> getReply(Context context, List<ChatMessage> history, String playerMessage) {
+		OllamaMod.VECTOR_STORE.clearEmbeddingCache();
+		this.prefetchedQuery = null;
+		this.prefetchedDocs = null;
+		this.prefetchedMemories = null;
+
 		WorldFactBundle worldFacts = worldContextTool.collect(context, history, playerMessage);
 		RoutePlan plan = router.plan(context, history, playerMessage);
 		System.out.println("[AgenticRAG] Route: useRetriever=" + plan.useRetriever() + " useMemory=" + plan.useMemory());
@@ -80,7 +90,10 @@ public class AgenticRagVillagerBrain implements VillagerBrain {
 				.exceptionally(e -> List.of());
 
 		return CompletableFuture.allOf(docsFut, memFut).thenCompose(v -> {
-			injectPrefetchedContext(messages, docsFut.join(), memFut.join());
+			this.prefetchedQuery = playerMessage;
+			this.prefetchedDocs = docsFut.join();
+			this.prefetchedMemories = memFut.join();
+			injectPrefetchedContext(messages, prefetchedDocs, prefetchedMemories);
 			return toolLoop(messages, context, 0);
 		});
 	}
@@ -113,6 +126,11 @@ public class AgenticRagVillagerBrain implements VillagerBrain {
 
 	@Override
 	public void getReplyStreaming(Context context, List<ChatMessage> history, String playerMessage, StreamCallbacks callbacks) {
+		OllamaMod.VECTOR_STORE.clearEmbeddingCache();
+		this.prefetchedQuery = null;
+		this.prefetchedDocs = null;
+		this.prefetchedMemories = null;
+
 		WorldFactBundle worldFacts = worldContextTool.collect(context, history, playerMessage);
 		RoutePlan plan = router.plan(context, history, playerMessage);
 		System.out.println("[AgenticRAG] facts=" + worldFacts.facts().size()
@@ -141,6 +159,9 @@ public class AgenticRagVillagerBrain implements VillagerBrain {
 			List<VectorDocument> docs = docsFut.join();
 			List<VectorDocument> memories = memFut.join();
 
+			this.prefetchedQuery = playerMessage;
+			this.prefetchedDocs = docs;
+			this.prefetchedMemories = memories;
 			injectPrefetchedContext(messages, docs, memories);
 			System.out.println("[AgenticRAG] Tool path: pre-fetched docs=" + docs.size() + " memories=" + memories.size());
 
@@ -368,6 +389,14 @@ public class AgenticRagVillagerBrain implements VillagerBrain {
 		return msg;
 	}
 
+	// Check if a tool query is similar enough to the pre-fetched query to reuse cached results.
+	private boolean isQuerySimilarToPrefetched(String toolQuery) {
+		if (prefetchedQuery == null || toolQuery == null) return false;
+		String a = prefetchedQuery.trim().toLowerCase();
+		String b = toolQuery.trim().toLowerCase();
+		return a.equals(b) || a.contains(b) || b.contains(a);
+	}
+
 	// Dispatches tool calls to the appropriate backend (vector store queries).
 	private CompletableFuture<List<Map<String, Object>>> executeToolCalls(JsonArray toolCalls, Context context) {
 		List<CompletableFuture<Map<String, Object>>> futures = new ArrayList<>();
@@ -384,16 +413,26 @@ public class AgenticRagVillagerBrain implements VillagerBrain {
 			CompletableFuture<String> resultFut;
 			switch (name) {
 				case "search_knowledge":
-					resultFut = OllamaMod.VECTOR_STORE
-							.queryDocuments(query, VectorStoreSettings.defaultTopK)
-							.thenApply(AgenticRagVillagerBrain::formatDocResults)
-							.exceptionally(e -> "(knowledge search failed: " + e.getMessage() + ")");
+					if (isQuerySimilarToPrefetched(query) && prefetchedDocs != null) {
+						System.out.println("[AgenticRAG] Reusing pre-fetched docs for search_knowledge");
+						resultFut = CompletableFuture.completedFuture(formatDocResults(prefetchedDocs));
+					} else {
+						resultFut = OllamaMod.VECTOR_STORE
+								.queryDocuments(query, VectorStoreSettings.defaultTopK)
+								.thenApply(AgenticRagVillagerBrain::formatDocResults)
+								.exceptionally(e -> "(knowledge search failed: " + e.getMessage() + ")");
+					}
 					break;
 				case "recall_memory":
-					resultFut = OllamaMod.VECTOR_STORE
-							.queryMemories(query, context.conversationId().toString(), VectorStoreSettings.defaultTopK)
-							.thenApply(AgenticRagVillagerBrain::formatDocResults)
-							.exceptionally(e -> "(memory recall failed: " + e.getMessage() + ")");
+					if (isQuerySimilarToPrefetched(query) && prefetchedMemories != null) {
+						System.out.println("[AgenticRAG] Reusing pre-fetched memories for recall_memory");
+						resultFut = CompletableFuture.completedFuture(formatDocResults(prefetchedMemories));
+					} else {
+						resultFut = OllamaMod.VECTOR_STORE
+								.queryMemories(query, context.conversationId().toString(), VectorStoreSettings.defaultTopK)
+								.thenApply(AgenticRagVillagerBrain::formatDocResults)
+								.exceptionally(e -> "(memory recall failed: " + e.getMessage() + ")");
+					}
 					break;
 				default:
 					resultFut = CompletableFuture.completedFuture("(unknown tool: " + name + ")");
