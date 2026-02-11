@@ -27,10 +27,6 @@ It would be awesome to implement [Ollama](https://ollama.com/) into Minecraft as
 - **Java 21** (JDK)
 - **[Ollama](https://ollama.com/)** installed and running locally.
     * Make sure port 11434 is open on your computer. If port 11434 is in use, you can specify a different port in the Ollama setting by updating the `baseUrl` in `src/main/java/net/kevinthedang/ollamamod/chat/OllamaSettings.java`. You can also change your Ollama endpoint if it is not running locally. By default, the mod expects Ollama to be available at `http://localhost:11434`.
-    * bash
-      ```bash
-      ollama serve
-      ```
 - **Git**
 
 ### Setup
@@ -45,10 +41,15 @@ It would be awesome to implement [Ollama](https://ollama.com/) into Minecraft as
    ```bash
    ollama pull llama3.2:latest
    ollama pull qwen3:8b
-   ollama pull nomic-embed-text
+   ollama pull nomic-embed-text:latest
    ```
 
-3. **Extracting and Organizing Minecraft Knowledge Base** (Only required to run once unless there is an update)
+3. **Serve Ollama** (if not already running)
+   ```bash
+   ollama serve
+   ```
+
+3. **Extracting and Organizing Minecraft Knowledge Base** (Only required to run once unless there is an update. Run at root of the project)
 
    ```bash
    npm install minecraft-data
@@ -56,7 +57,7 @@ It would be awesome to implement [Ollama](https://ollama.com/) into Minecraft as
    node tools/minecraft_data_extractor.js
    ```
 
-4. **Seed the vector store** (Minecraft knowledge base for villager conversations. Only required to run once unless there is an update)
+4. **Seed the vector store** (Minecraft knowledge base for villager conversations. Only required to run once unless there is an update. Run at root of the project)
    ```bash
    ./gradlew seedData --args="--ingest tools/seed-documents"
    ```
