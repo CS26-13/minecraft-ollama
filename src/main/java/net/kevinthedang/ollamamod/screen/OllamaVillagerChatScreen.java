@@ -60,6 +60,8 @@ public class OllamaVillagerChatScreen extends Screen {
     private static final int PLAYER_FILL_COLOR = 0x00AAAA;
     private static final int NPC_BORDER_COLOR = 0xFF15582D;
     private static final int NPC_FILL_COLOR = 0x00AA00;
+    private static final int SYSTEM_BORDER_COLOR = 0xFF888888;
+    private static final int SYSTEM_FILL_COLOR = 0xFF555555;
 
     public OllamaVillagerChatScreen(Screen previousScreen) {
     this(previousScreen, null);
@@ -103,7 +105,7 @@ public class OllamaVillagerChatScreen extends Screen {
                 startY + GUI_HEIGHT - 30,
                 GUI_WIDTH - 45,
                 20,
-                Component.literal("Type your message...")) {
+                Component.literal("Type your message or /help for commands...")) {
 
             @Override
             public boolean keyPressed(int keyCode, int scanCode, int modifiers) {
@@ -126,7 +128,7 @@ public class OllamaVillagerChatScreen extends Screen {
             }
         };
         this.chatInput.setMaxLength(128);
-        this.chatInput.setHint(Component.literal("Type your message..."));
+        this.chatInput.setHint(Component.literal("Type your message or /help for commands..."));
         this.addRenderableWidget(this.chatInput);
 
         // send button
@@ -200,6 +202,12 @@ public class OllamaVillagerChatScreen extends Screen {
         }
 
         this.chatInput.setValue("");
+
+        // Intercept chat commands before sending to LLM
+        if (text.startsWith("/")) {
+            handleCommand(text);
+            return;
+        }
 
         // start streaming
         streamGeneration++;
@@ -341,6 +349,14 @@ public class OllamaVillagerChatScreen extends Screen {
 
         // render it all
         super.render(guiGraphics, mouseX, mouseY, partialTick);
+
+        // Draw hint text over the input when empty (EditBox only shows hints when unfocused)
+        if (this.chatInput != null && this.chatInput.getValue().isEmpty()) {
+            int hintX = startX + 5 + 4;
+            int hintY = startY + GUI_HEIGHT - 30 + 6;
+            guiGraphics.drawString(this.font, "Type your message or /help for commands...",
+                    hintX, hintY, 0xFF707070, false);
+        }
     }
 
     @Override
@@ -445,7 +461,13 @@ public class OllamaVillagerChatScreen extends Screen {
 
             int bubbleLeft;
             int bubbleRight;
-            if (bubble.message().fromPlayer()) {
+            ChatRole role = bubble.message().role();
+            if (role == ChatRole.SYSTEM) {
+                // Center system bubbles
+                int center = chatX + chatWidth / 2;
+                bubbleLeft = center - bubble.bubbleWidth() / 2;
+                bubbleRight = bubbleLeft + bubble.bubbleWidth();
+            } else if (role == ChatRole.PLAYER) {
                 bubbleRight = chatX + chatWidth - bubbleSpacing;
                 bubbleLeft = bubbleRight - bubble.bubbleWidth();
             } else {
@@ -453,8 +475,18 @@ public class OllamaVillagerChatScreen extends Screen {
                 bubbleRight = bubbleLeft + bubble.bubbleWidth();
             }
 
-            int borderColor = bubble.message().fromPlayer() ? PLAYER_BORDER_COLOR : NPC_BORDER_COLOR;
-            int fillColor = bubble.message().fromPlayer() ? PLAYER_FILL_COLOR : NPC_FILL_COLOR;
+            int borderColor;
+            int fillColor;
+            if (role == ChatRole.SYSTEM) {
+                borderColor = SYSTEM_BORDER_COLOR;
+                fillColor = SYSTEM_FILL_COLOR;
+            } else if (role == ChatRole.PLAYER) {
+                borderColor = PLAYER_BORDER_COLOR;
+                fillColor = PLAYER_FILL_COLOR;
+            } else {
+                borderColor = NPC_BORDER_COLOR;
+                fillColor = NPC_FILL_COLOR;
+            }
 
             guiGraphics.fill(bubbleLeft - 1, bubbleTop - 1, bubbleRight + 1, bubbleBottom + 1, borderColor);
             guiGraphics.fill(bubbleLeft, bubbleTop, bubbleRight, bubbleBottom, fillColor);
@@ -486,19 +518,19 @@ public class OllamaVillagerChatScreen extends Screen {
     
     private static class ChatMessageBubble {
         private Component text;
-        private final boolean fromPlayer;
+        private final ChatRole role;
 
-        private ChatMessageBubble(Component text, boolean fromPlayer) {
+        private ChatMessageBubble(Component text, ChatRole role) {
             this.text = text;
-            this.fromPlayer = fromPlayer;
+            this.role = role;
         }
 
         public Component text() {
             return this.text;
         }
 
-        public boolean fromPlayer() {
-            return this.fromPlayer;
+        public ChatRole role() {
+            return this.role;
         }
 
         public void setText(Component newText) {
@@ -515,8 +547,7 @@ public class OllamaVillagerChatScreen extends Screen {
     }
 
     private ChatMessageBubble toUiMessage(ChatMessage message) {
-        boolean fromPlayer = (message.role() == ChatRole.PLAYER);
-        return new ChatMessageBubble(Component.literal(message.content()), fromPlayer);
+        return new ChatMessageBubble(Component.literal(message.content()), message.role());
     }
 
     private record BubbleRenderData(ChatMessageBubble message,
@@ -544,6 +575,33 @@ public class OllamaVillagerChatScreen extends Screen {
         }
 
         this.statusText = "Stopped.";
+    }
+
+    // Route a slash command to the appropriate handler.
+    private void handleCommand(String text) {
+        String command = text.toLowerCase().trim();
+
+        if (command.equals("/help")) {
+            appendSystemMessage(
+                "Available commands:\n" +
+                "/help - Show this help message\n" +
+                "/clearmemory - Clear all memories and chat history for this villager"
+            );
+        } else if (command.equals("/clearmemory")) {
+            ensurePersonaResolved();
+            OllamaMod.VECTOR_STORE.deleteMemoriesForVillager(conversationId.toString());
+            OllamaMod.CHAT_HISTORY.clear(conversationId);
+            chatMessages.clear();
+            appendSystemMessage("Memory and chat history cleared for this villager.");
+        } else {
+            appendSystemMessage("Unknown command. Type /help for available commands.");
+        }
+    }
+
+    // Display a system message in the chat log.
+    private void appendSystemMessage(String text) {
+        chatMessages.add(new ChatMessageBubble(Component.literal(text), ChatRole.SYSTEM));
+        this.scrollOffset = Double.MAX_VALUE;
     }
 
     private void ensurePersonaResolved() {

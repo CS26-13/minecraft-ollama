@@ -116,6 +116,11 @@ public class VectorStoreService {
         }
     }
 
+    // Delete all memories associated with a specific villager.
+    public int deleteMemoriesForVillager(String villagerId) {
+        return store.deleteByFilter(MetadataFilter.memoriesForVillager(villagerId));
+    }
+
     // Check whether the embedding service is reachable.
     public boolean isHealthy() {
         return embeddingService.isHealthy();
