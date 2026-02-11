@@ -49,7 +49,7 @@ It would be awesome to implement [Ollama](https://ollama.com/) into Minecraft as
    ollama serve
    ```
 
-3. **Extracting and Organizing Minecraft Knowledge Base** (Only required to run once unless there is an update. Run at root of the project)
+4. **Extracting and Organizing Minecraft Knowledge Base** (Only required to run once unless there is an update. Run at root of the project)
 
    ```bash
    npm install minecraft-data
@@ -57,18 +57,18 @@ It would be awesome to implement [Ollama](https://ollama.com/) into Minecraft as
    node tools/minecraft_data_extractor.js
    ```
 
-4. **Seed the vector store** (Minecraft knowledge base for villager conversations. Only required to run once unless there is an update. Run at root of the project)
+5. **Seed the vector store** (Minecraft knowledge base for villager conversations. Only required to run once unless there is an update. Run at root of the project)
    ```bash
    ./gradlew seedData --args="--ingest tools/seed-documents"
    ```
 
-5. **Launch the game**
+6. **Launch the game**
 
    ```bash
    ./gradlew runClient
     ```
 
-6. **Chat with a villager** — find a villager, open the trade screen, and click the **"Chat"** button.
+7. **Chat with a villager** — find a villager, open the trade screen, and click the **"Chat"** button.
 
 ### Running Tests
 
