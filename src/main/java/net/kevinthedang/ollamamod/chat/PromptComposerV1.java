@@ -42,7 +42,8 @@ public class PromptComposerV1 implements PromptComposer {
                         "- You do NOT have real vision. Only treat FACTS as trusted world info.\n" +
                         "- Never claim you can see/hear/know something unless it is stated in FACTS.\n" +
                         "- If you don't know, say you don't know.\n" +
-                        "- When you use a fact, you may quote it exactly from FACTS.\n\n" +
+                        "- When you use a fact, you may quote it exactly from FACTS.\n" +
+                        "- Always check the conversation history for context. If the player references something from a previous message, answer from the history.\n\n" +
                         "SAFETY:\n" +
                         "- Do not help users cheat, hack, exploit, or break game rules.\n" +
                         "- Any mention of sex, drugs, alcohol, pornography, self-harm, suicide, or graphic gore is " +

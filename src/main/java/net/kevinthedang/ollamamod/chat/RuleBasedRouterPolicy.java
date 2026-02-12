@@ -40,32 +40,43 @@ public class RuleBasedRouterPolicy implements RouterPolicy {
     // Number of recent history messages to scan for follow-up detection
     private static final int HISTORY_LOOKBACK = 4;
 
+    // Messages with fewer than this many words are considered vague for augmentation purposes
+    private static final int VAGUE_WORD_THRESHOLD = 6;
+
     @Override
     public RoutePlan plan(VillagerBrain.Context ctx, List<ChatMessage> history, String playerMessage) {
         String m = playerMessage == null ? "" : playerMessage.toLowerCase(Locale.ROOT);
 
         boolean wantsWorld = true;
 
-        boolean wantsMemory = containsAny(m,
-                "remember", "last time", "you said", "my name", "i like", "i hate", "don't forget");
+        // Memory is always included — it's cheap (~100ms) and ensures name/context recall
+        boolean wantsMemory = true;
 
         // Fast-path override: questions answerable from FACTS always skip retrieval
         boolean forceFastPath = containsAny(m, FAST_PATH_KEYWORDS);
 
         boolean wantsRetriever = !forceFastPath && containsAny(m, RETRIEVER_KEYWORDS);
 
-        // Follow-up detection: if recent player messages triggered retrieval keywords,
-        // the current message is likely a follow-up to the same topic.
-        // Skipped when the current message is clearly a new FACTS topic.
+        // Follow-up detection: if recent history has retriever intent or the villager
+        // asked a question (e.g. "Do you need help finding diamonds?"), treat short
+        // replies like "yes please" as continuations that need retrieval.
         if (!wantsRetriever && !forceFastPath && history != null && !history.isEmpty()) {
-            wantsRetriever = recentHistoryHasRetrieverIntent(history);
+            if (recentHistoryHasRetrieverIntent(history) || lastVillagerAskedQuestion(history)) {
+                wantsRetriever = true;
+            }
+        }
+
+        // Build augmented query for vague follow-ups
+        String augmentedQuery = null;
+        if (wantsRetriever && isVagueQuery(m)) {
+            augmentedQuery = buildAugmentedQuery(m, history);
         }
 
         // depth is reserved for future (0=none, 1=low, 2=high)
         int depth = wantsRetriever ? 1 : 0;
 
         // Enable memory/retrieval routing based on detected intent.
-        return new RoutePlan(wantsWorld, wantsMemory, wantsRetriever, depth);
+        return new RoutePlan(wantsWorld, wantsMemory, wantsRetriever, depth, augmentedQuery);
     }
 
     // Checks whether recent player messages in the conversation contained retriever keywords.
@@ -81,6 +92,44 @@ public class RuleBasedRouterPolicy implements RouterPolicy {
             }
         }
         return false;
+    }
+
+    // Checks whether the most recent villager message within HISTORY_LOOKBACK ends with '?'.
+    // This catches short affirmative replies like "yes please" after a villager question.
+    private boolean lastVillagerAskedQuestion(List<ChatMessage> history) {
+        int start = Math.max(0, history.size() - HISTORY_LOOKBACK);
+        for (int i = history.size() - 1; i >= start; i--) {
+            ChatMessage msg = history.get(i);
+            if (msg.role() == ChatRole.VILLAGER) {
+                return msg.content().trim().endsWith("?");
+            }
+        }
+        return false;
+    }
+
+    // Checks whether the current message is vague (no retriever keywords or very short).
+    private boolean isVagueQuery(String message) {
+        if (containsAny(message, RETRIEVER_KEYWORDS)) return false;
+        String[] words = message.trim().split("\\s+");
+        return words.length < VAGUE_WORD_THRESHOLD;
+    }
+
+    // Finds the most recent player message with retriever keywords and prepends it
+    // to the current message to give the embedding model stronger topic signal.
+    String buildAugmentedQuery(String currentMessage, List<ChatMessage> history) {
+        if (history == null || history.isEmpty()) return null;
+
+        int start = Math.max(0, history.size() - HISTORY_LOOKBACK);
+        for (int i = history.size() - 1; i >= start; i--) {
+            ChatMessage msg = history.get(i);
+            if (msg.role() == ChatRole.PLAYER) {
+                String text = msg.content().toLowerCase(Locale.ROOT);
+                if (containsAny(text, RETRIEVER_KEYWORDS)) {
+                    return msg.content() + " " + currentMessage;
+                }
+            }
+        }
+        return null;
     }
 
     private static boolean containsAny(String haystack, String... needles) {

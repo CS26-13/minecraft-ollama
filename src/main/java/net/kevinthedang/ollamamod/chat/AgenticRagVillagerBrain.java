@@ -66,31 +66,40 @@ public class AgenticRagVillagerBrain implements VillagerBrain {
 
 		WorldFactBundle worldFacts = worldContextTool.collect(context, history, playerMessage);
 		RoutePlan plan = router.plan(context, history, playerMessage);
+		String retrievalQuery = plan.effectiveQuery(playerMessage);
 		System.out.println("[AgenticRAG] Route: useRetriever=" + plan.useRetriever() + " useMemory=" + plan.useMemory());
+		if (!retrievalQuery.equals(playerMessage)) {
+			System.out.println("[AgenticRAG] Augmented retrieval query: " + retrievalQuery);
+		}
 
 		List<Map<String, Object>> messages = toObjectMaps(
 				promptComposer.buildMessages(context, history, playerMessage, worldFacts));
 
+		// Always pre-fetch memories — cheap (~100ms) and ensures name/context recall
+		CompletableFuture<List<VectorDocument>> memFut = OllamaMod.VECTOR_STORE
+				.queryMemories(retrievalQuery, context.conversationId().toString(), VectorStoreSettings.defaultTopK)
+				.exceptionally(e -> List.of());
+
 		if (!plan.useRetriever()) {
-			// Fast path: FACTS + history only, no tools, fast model
-			return sendNonStreaming(messages, false, OllamaSettings.chatModel).thenApply(responseBody -> {
-				JsonObject root = JsonParser.parseString(responseBody).getAsJsonObject();
-				String content = extractContent(root.getAsJsonObject("message"));
-				System.out.println("[AgenticRAG] Fast path reply (chatModel, no tools)");
-				return content;
+			// Fast path: FACTS + history + memories, no tools, fast model
+			return memFut.thenCompose(memories -> {
+				this.prefetchedMemories = memories;
+				injectPrefetchedContext(messages, List.of(), memories);
+				System.out.println("[AgenticRAG] Fast path (chatModel, no tools, memories=" + memories.size() + ")");
+				return sendNonStreaming(messages, false, OllamaSettings.chatModel).thenApply(responseBody -> {
+					JsonObject root = JsonParser.parseString(responseBody).getAsJsonObject();
+					return extractContent(root.getAsJsonObject("message"));
+				});
 			});
 		}
 
-		// Tool path: pre-fetch context, tools enabled, capable model
+		// Tool path: pre-fetch docs + memories, tools enabled, capable model
 		CompletableFuture<List<VectorDocument>> docsFut = OllamaMod.VECTOR_STORE
-				.queryDocuments(playerMessage, VectorStoreSettings.defaultTopK)
-				.exceptionally(e -> List.of());
-		CompletableFuture<List<VectorDocument>> memFut = OllamaMod.VECTOR_STORE
-				.queryMemories(playerMessage, context.conversationId().toString(), VectorStoreSettings.defaultTopK)
+				.queryDocuments(retrievalQuery, VectorStoreSettings.defaultTopK)
 				.exceptionally(e -> List.of());
 
 		return CompletableFuture.allOf(docsFut, memFut).thenCompose(v -> {
-			this.prefetchedQuery = playerMessage;
+			this.prefetchedQuery = retrievalQuery;
 			this.prefetchedDocs = docsFut.join();
 			this.prefetchedMemories = memFut.join();
 			injectPrefetchedContext(messages, prefetchedDocs, prefetchedMemories);
@@ -133,33 +142,46 @@ public class AgenticRagVillagerBrain implements VillagerBrain {
 
 		WorldFactBundle worldFacts = worldContextTool.collect(context, history, playerMessage);
 		RoutePlan plan = router.plan(context, history, playerMessage);
+		String retrievalQuery = plan.effectiveQuery(playerMessage);
 		System.out.println("[AgenticRAG] facts=" + worldFacts.facts().size()
 				+ " first=" + (worldFacts.facts().isEmpty() ? "none" : worldFacts.facts().get(0).factText()));
 		System.out.println("[AgenticRAG] Route: useRetriever=" + plan.useRetriever() + " useMemory=" + plan.useMemory());
+		if (!retrievalQuery.equals(playerMessage)) {
+			System.out.println("[AgenticRAG] Augmented retrieval query: " + retrievalQuery);
+		}
 
 		List<Map<String, Object>> messages = toObjectMaps(
 				promptComposer.buildMessages(context, history, playerMessage, worldFacts));
 
+		// Always pre-fetch memories — cheap (~100ms) and ensures name/context recall
+		CompletableFuture<List<VectorDocument>> memFut = OllamaMod.VECTOR_STORE
+				.queryMemories(retrievalQuery, context.conversationId().toString(), VectorStoreSettings.defaultTopK)
+				.exceptionally(e -> List.of());
+
 		if (!plan.useRetriever()) {
-			// Fast path: FACTS + history only, no tools, stream directly with fast model
-			System.out.println("[AgenticRAG] Fast path (chatModel, no tools, streaming)");
-			streamFinalReply(messages, callbacks, OllamaSettings.chatModel);
+			// Fast path: FACTS + history + memories, no tools, stream directly with fast model
+			memFut.thenAccept(memories -> {
+				this.prefetchedMemories = memories;
+				injectPrefetchedContext(messages, List.of(), memories);
+				System.out.println("[AgenticRAG] Fast path (chatModel, no tools, streaming, memories=" + memories.size() + ")");
+				streamFinalReply(messages, callbacks, OllamaSettings.chatModel);
+			}).exceptionally(e -> {
+				callbacks.onError(e);
+				return null;
+			});
 			return;
 		}
 
-		// Tool path: pre-fetch context, tools enabled, capable model
+		// Tool path: pre-fetch docs + memories, tools enabled, capable model
 		CompletableFuture<List<VectorDocument>> docsFut = OllamaMod.VECTOR_STORE
-				.queryDocuments(playerMessage, VectorStoreSettings.defaultTopK)
-				.exceptionally(e -> List.of());
-		CompletableFuture<List<VectorDocument>> memFut = OllamaMod.VECTOR_STORE
-				.queryMemories(playerMessage, context.conversationId().toString(), VectorStoreSettings.defaultTopK)
+				.queryDocuments(retrievalQuery, VectorStoreSettings.defaultTopK)
 				.exceptionally(e -> List.of());
 
 		CompletableFuture.allOf(docsFut, memFut).thenCompose(v -> {
 			List<VectorDocument> docs = docsFut.join();
 			List<VectorDocument> memories = memFut.join();
 
-			this.prefetchedQuery = playerMessage;
+			this.prefetchedQuery = retrievalQuery;
 			this.prefetchedDocs = docs;
 			this.prefetchedMemories = memories;
 			injectPrefetchedContext(messages, docs, memories);
@@ -339,8 +361,14 @@ public class AgenticRagVillagerBrain implements VillagerBrain {
 				.POST(HttpRequest.BodyPublishers.ofString(json, StandardCharsets.UTF_8))
 				.build();
 
+		long start = System.currentTimeMillis();
+		System.out.println("[AgenticRAG] Sending non-streaming request to " + model
+				+ " (tools=" + includeTools + ", messages=" + messages.size() + ")");
+
 		return client.sendAsync(request, HttpResponse.BodyHandlers.ofString())
 				.thenApply(response -> {
+					long elapsed = System.currentTimeMillis() - start;
+					System.out.println("[AgenticRAG] Response from " + model + " in " + elapsed + "ms (HTTP " + response.statusCode() + ")");
 					if (response.statusCode() != 200) {
 						throw new RuntimeException("Ollama HTTP " + response.statusCode() + ": " + response.body());
 					}

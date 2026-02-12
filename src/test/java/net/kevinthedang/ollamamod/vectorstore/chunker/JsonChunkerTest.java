@@ -6,6 +6,7 @@ import org.junit.jupiter.api.Test;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -118,7 +119,46 @@ public class JsonChunkerTest {
             + "[null,\"stick\",null],[null,\"stick\",null]]}]";
         List<String> chunks = chunker.chunk(content);
         assertTrue(chunks.size() >= 1, "Expected at least one chunk");
-        assertTrue(chunks.get(0).startsWith("shaped recipe for diamond pickaxe:"),
-            "Chunk should start with label prefix");
+        assertTrue(chunks.get(0).startsWith("shaped recipe for diamond pickaxe"),
+            "Chunk should start with recipe label");
+    }
+
+    // Shaped recipes should render as a human-readable grid with [Item] cells.
+    @Test
+    public void shapedRecipeFormattedAsGrid() {
+        JsonChunker chunker = new JsonChunker(1024);
+        String content = "[{\"resultingItem\":{\"item\":\"diamond_pickaxe\",\"itemCount\":1},"
+            + "\"type\":\"shaped\",\"pattern\":[[\"diamond\",\"diamond\",\"diamond\"],"
+            + "[null,\"stick\",null],[null,\"stick\",null]]}]";
+        List<String> chunks = chunker.chunk(content);
+        String chunk = chunks.get(0);
+
+        assertTrue(chunk.contains("[Diamond] [Diamond] [Diamond]"),
+            "Top row should show three diamonds: " + chunk);
+        assertTrue(chunk.contains("[Empty] [Stick] [Empty]"),
+            "Middle/bottom rows should show centered stick: " + chunk);
+        assertTrue(chunk.contains("Crafting grid:"),
+            "Should contain grid header: " + chunk);
+        assertFalse(chunk.contains("{"),
+            "Should not contain raw JSON: " + chunk);
+    }
+
+    // Shapeless recipes should render as an ingredient list.
+    @Test
+    public void shapelessRecipeFormattedAsList() {
+        JsonChunker chunker = new JsonChunker(1024);
+        String content = "[{\"resultingItem\":{\"item\":\"granite\",\"itemCount\":1},"
+            + "\"type\":\"shapeless\",\"ingredients\":[\"diorite\",\"quartz\"]}]";
+        List<String> chunks = chunker.chunk(content);
+        String chunk = chunks.get(0);
+
+        assertTrue(chunk.contains("Ingredients:"),
+            "Should contain Ingredients header: " + chunk);
+        assertTrue(chunk.contains("diorite"),
+            "Should list diorite: " + chunk);
+        assertTrue(chunk.contains("quartz"),
+            "Should list quartz: " + chunk);
+        assertFalse(chunk.contains("{"),
+            "Should not contain raw JSON: " + chunk);
     }
 }
