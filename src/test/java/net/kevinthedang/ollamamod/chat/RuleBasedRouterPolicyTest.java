@@ -122,6 +122,20 @@ public class RuleBasedRouterPolicyTest {
 		assertFalse(plan.useRetriever(), "fast-path should override retriever even with history");
 	}
 
+	// Villager asks about diamonds, player says "yes" → augmented query uses villager message
+	@Test
+	public void villagerQuestionAugmentsQuery() {
+		List<ChatMessage> history = List.of(
+				new ChatMessage(ChatRole.PLAYER, "I want to go mining"),
+				new ChatMessage(ChatRole.VILLAGER, "Do you need help finding diamonds?")
+		);
+		String result = router.buildAugmentedQuery("yes", history);
+
+		assertNotNull(result, "should augment with villager message when no player retriever message");
+		assertTrue(result.contains("diamonds"), "augmented query should contain villager's topic");
+		assertTrue(result.contains("yes"), "augmented query should contain current message");
+	}
+
 	// buildAugmentedQuery should return null when no history
 	@Test
 	public void buildAugmentedQueryReturnsNullWithoutHistory() {

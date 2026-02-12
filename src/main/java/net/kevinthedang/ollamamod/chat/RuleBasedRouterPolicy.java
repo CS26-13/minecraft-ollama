@@ -116,6 +116,8 @@ public class RuleBasedRouterPolicy implements RouterPolicy {
 
     // Finds the most recent player message with retriever keywords and prepends it
     // to the current message to give the embedding model stronger topic signal.
+    // Falls back to the last villager message if no player retriever message is found,
+    // so "yes please" after "Do you need help finding diamonds?" becomes a useful query.
     String buildAugmentedQuery(String currentMessage, List<ChatMessage> history) {
         if (history == null || history.isEmpty()) return null;
 
@@ -127,6 +129,14 @@ public class RuleBasedRouterPolicy implements RouterPolicy {
                 if (containsAny(text, RETRIEVER_KEYWORDS)) {
                     return msg.content() + " " + currentMessage;
                 }
+            }
+        }
+
+        // Fallback: use last villager message as context for the query
+        for (int i = history.size() - 1; i >= start; i--) {
+            ChatMessage msg = history.get(i);
+            if (msg.role() == ChatRole.VILLAGER) {
+                return msg.content() + " " + currentMessage;
             }
         }
         return null;

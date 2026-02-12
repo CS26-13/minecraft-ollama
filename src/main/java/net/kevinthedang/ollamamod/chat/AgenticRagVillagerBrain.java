@@ -93,7 +93,7 @@ public class AgenticRagVillagerBrain implements VillagerBrain {
 			});
 		}
 
-		// Tool path: pre-fetch docs + memories, tools enabled, capable model
+		// Retriever path: pre-fetch docs + memories
 		CompletableFuture<List<VectorDocument>> docsFut = OllamaMod.VECTOR_STORE
 				.queryDocuments(retrievalQuery, VectorStoreSettings.defaultTopK)
 				.exceptionally(e -> List.of());
@@ -103,6 +103,20 @@ public class AgenticRagVillagerBrain implements VillagerBrain {
 			this.prefetchedDocs = docsFut.join();
 			this.prefetchedMemories = memFut.join();
 			injectPrefetchedContext(messages, prefetchedDocs, prefetchedMemories);
+
+			if (!prefetchedDocs.isEmpty()) {
+				// Docs found — respond directly, no tools needed
+				System.out.println("[AgenticRAG] Retriever path: direct reply (docs=" + prefetchedDocs.size()
+						+ ", memories=" + prefetchedMemories.size() + ")");
+				return sendNonStreaming(messages, false, OllamaSettings.toolModel).thenApply(responseBody -> {
+					JsonObject root = JsonParser.parseString(responseBody).getAsJsonObject();
+					return extractContent(root.getAsJsonObject("message"));
+				});
+			}
+
+			// No docs found — fall back to tool loop for accuracy
+			System.out.println("[AgenticRAG] Retriever path: tool fallback (no docs found, memories="
+					+ prefetchedMemories.size() + ")");
 			return toolLoop(messages, context, 0);
 		});
 	}
@@ -172,7 +186,7 @@ public class AgenticRagVillagerBrain implements VillagerBrain {
 			return;
 		}
 
-		// Tool path: pre-fetch docs + memories, tools enabled, capable model
+		// Retriever path: pre-fetch docs + memories
 		CompletableFuture<List<VectorDocument>> docsFut = OllamaMod.VECTOR_STORE
 				.queryDocuments(retrievalQuery, VectorStoreSettings.defaultTopK)
 				.exceptionally(e -> List.of());
@@ -185,23 +199,31 @@ public class AgenticRagVillagerBrain implements VillagerBrain {
 			this.prefetchedDocs = docs;
 			this.prefetchedMemories = memories;
 			injectPrefetchedContext(messages, docs, memories);
-			System.out.println("[AgenticRAG] Tool path: pre-fetched docs=" + docs.size() + " memories=" + memories.size());
 
-			// Non-streaming call with tools using capable model
+			if (!docs.isEmpty()) {
+				// Docs found — stream directly, no tools needed
+				System.out.println("[AgenticRAG] Retriever path: streaming (docs=" + docs.size()
+						+ ", memories=" + memories.size() + ")");
+				streamFinalReply(messages, callbacks, OllamaSettings.toolModel);
+				return CompletableFuture.completedFuture((Void) null);
+			}
+
+			// No docs found — fall back to tool loop for accuracy
+			System.out.println("[AgenticRAG] Retriever path: tool fallback (no docs found, memories="
+					+ memories.size() + ")");
+
 			return sendNonStreaming(messages, true, OllamaSettings.toolModel).thenCompose(responseBody -> {
 				JsonObject root = JsonParser.parseString(responseBody).getAsJsonObject();
 				JsonObject message = root.getAsJsonObject("message");
 
 				if (!hasToolCalls(message)) {
-					// LLM answered directly using pre-fetched context — 1 LLM call total
 					String content = extractContent(message);
-					System.out.println("[AgenticRAG] Direct reply (1 LLM call, toolModel)");
+					System.out.println("[AgenticRAG] Tool fallback: direct reply (no tool calls)");
 					callbacks.onDelta(content);
 					callbacks.onCompleted(content);
 					return CompletableFuture.completedFuture((Void) null);
 				}
 
-				// LLM wants additional tool calls beyond pre-fetched context
 				messages.add(assistantMessageFromJson(message));
 				JsonArray toolCalls = message.getAsJsonArray("tool_calls");
 				System.out.println("[AgenticRAG] Tool iteration 1, tool calls: " + toolCalls.size());
@@ -356,7 +378,7 @@ public class AgenticRagVillagerBrain implements VillagerBrain {
 
 		HttpRequest request = HttpRequest.newBuilder()
 				.uri(chatUri)
-				.timeout(Duration.ofSeconds(120))
+				.timeout(Duration.ofSeconds(60))
 				.header("Content-Type", "application/json")
 				.POST(HttpRequest.BodyPublishers.ofString(json, StandardCharsets.UTF_8))
 				.build();
