@@ -26,6 +26,12 @@ import org.slf4j.Logger;
 import net.kevinthedang.ollamamod.chat.ChatHistoryManager;
 import net.kevinthedang.ollamamod.chat.AgenticRagVillagerBrain;
 import net.kevinthedang.ollamamod.chat.VillagerChatService;
+import net.kevinthedang.ollamamod.vectorstore.embedding.CachingEmbeddingService;
+import net.kevinthedang.ollamamod.vectorstore.embedding.OllamaEmbeddingService;
+import net.kevinthedang.ollamamod.vectorstore.store.LangChain4jVectorStore;
+import net.kevinthedang.ollamamod.vectorstore.chunker.TextChunker;
+import net.kevinthedang.ollamamod.vectorstore.chunker.JsonChunker;
+import net.kevinthedang.ollamamod.vectorstore.chunker.ConversationChunker;
 // The value here should match an entry in the META-INF/mods.toml file
 @Mod(OllamaMod.MOD_ID)
 public final class OllamaMod {
@@ -38,7 +44,10 @@ public final class OllamaMod {
     public static final ChatHistoryManager CHAT_HISTORY = new ChatHistoryManager();
     public static final AgenticRagVillagerBrain VILLAGER_BRAIN = new AgenticRagVillagerBrain();
     public static final VillagerChatService CHAT_SERVICE = new VillagerChatService(CHAT_HISTORY, VILLAGER_BRAIN);
-    public static final VectorStoreService VECTOR_STORE = new VectorStoreService();
+    public static final VectorStoreService VECTOR_STORE = new VectorStoreService(
+        new CachingEmbeddingService(new OllamaEmbeddingService()),
+        new LangChain4jVectorStore(),
+        new TextChunker(), new JsonChunker(), new ConversationChunker());
 
     // Initialize the mod and register configuration + setup hooks.
     public OllamaMod(FMLJavaModLoadingContext context) {

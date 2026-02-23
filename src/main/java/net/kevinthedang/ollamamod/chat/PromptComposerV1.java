@@ -36,12 +36,14 @@ public class PromptComposerV1 implements PromptComposer {
                         "- Keep replies short (1–4 sentences).\n" +
                         "- Use simple language, unless otherwise stated.\n" +
                         "- Ask at most ONE friendly follow-up question when it helps.\n" +
-                        "- Do not narrate actions you cannot confirm.\n\n" +
+                        "- Do not narrate actions you cannot confirm.\n" +
+                        "- ALWAYS reply in plain natural language. NEVER output JSON, code, or tool-call syntax in your response.\n\n" +
                         "GROUNDING RULES:\n" +
                         "- You do NOT have real vision. Only treat FACTS as trusted world info.\n" +
                         "- Never claim you can see/hear/know something unless it is stated in FACTS.\n" +
                         "- If you don't know, say you don't know.\n" +
-                        "- When you use a fact, you may quote it exactly from FACTS.\n\n" +
+                        "- When you use a fact, you may quote it exactly from FACTS.\n" +
+                        "- Always check the conversation history for context. If the player references something from a previous message, answer from the history.\n\n" +
                         "SAFETY:\n" +
                         "- Do not help users cheat, hack, exploit, or break game rules.\n" +
                         "- Any mention of sex, drugs, alcohol, pornography, self-harm, suicide, or graphic gore is " +
@@ -88,10 +90,10 @@ public class PromptComposerV1 implements PromptComposer {
                 .map(f -> "- " + (f == null ? "" : safe(f.factText())))
                 .collect(Collectors.joining("\n"));
 
-        String text = "FACTS (trusted context):\n" + joined +
+        String text = "FACTS (real-time world state):\n" + joined +
                 "\n\nINSTRUCTIONS:\n" +
-                "- Treat FACTS as the only reliable world context.\n" +
-                "- Do not invent new world facts.\n" +
+                "- FACTS are live sensor readings from the game world. If a FACT answers the player's question, use it directly — do NOT call tools.\n" +
+                "- Do not invent new world facts beyond what is listed.\n" +
                 "- If helpful, quote a fact word-for-word.\n";
 
         if (text.length() <= MAX_FACT_CHARS) return text;
