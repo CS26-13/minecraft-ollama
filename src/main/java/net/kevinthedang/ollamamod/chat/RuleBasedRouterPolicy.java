@@ -37,6 +37,11 @@ public class RuleBasedRouterPolicy implements RouterPolicy {
             "explain",
     };
 
+    // Pronouns/references that indicate a vague follow-up query — augment regardless of retriever keywords
+    private static final String[] REFERENCE_PRONOUNS = {
+            " it", " this", " that", " those", " them", " its", " these"
+    };
+
     // Number of recent history messages to scan for follow-up detection
     private static final int HISTORY_LOOKBACK = 4;
 
@@ -107,8 +112,10 @@ public class RuleBasedRouterPolicy implements RouterPolicy {
         return false;
     }
 
-    // Checks whether the current message is vague (no retriever keywords or very short).
+    // Checks whether the current message is vague (pronoun-dependent, no retriever keywords, or very short).
     private boolean isVagueQuery(String message) {
+        // Pronoun references are always vague — augment regardless of retriever keywords
+        if (containsAny(message, REFERENCE_PRONOUNS)) return true;
         if (containsAny(message, RETRIEVER_KEYWORDS)) return false;
         String[] words = message.trim().split("\\s+");
         return words.length < VAGUE_WORD_THRESHOLD;

@@ -160,29 +160,6 @@ public class OllamaVillagerChatScreen extends Screen {
         }
     }
 
-    private Villager findNearestVillager() {
-        if (minecraft == null || minecraft.player == null || minecraft.level == null) return null;
-
-        var player = minecraft.player;
-        var level = minecraft.level;
-
-        var aabb = player.getBoundingBox().inflate(6.0);
-
-        var list = level.getEntitiesOfClass(net.minecraft.world.entity.npc.Villager.class, aabb);
-        if (list.isEmpty()) return null;
-
-        net.minecraft.world.entity.npc.Villager best = null;
-        double bestDist = Double.MAX_VALUE;
-        for (var v : list) {
-            double d = v.distanceToSqr(player);
-            if (d < bestDist) {
-                bestDist = d;
-                best = v;
-            }
-        }
-        return best;
-    }
-
     private void sendMessage() {
         if (this.minecraft == null) {
             return;
@@ -298,22 +275,20 @@ public class OllamaVillagerChatScreen extends Screen {
 
         ensurePersonaResolved();
 
-        Villager v = findNearestVillager();
-        String villagerName = (v != null) ? v.getName().getString() : "Villager";
-        String profession = (v != null) ? prettyProfession(v) : "Unknown";
-
-        UUID conversationId = (v != null) ? v.getUUID() : UUID.randomUUID();
+        // Use the villager resolved at screen-open time (this.conversationId) to avoid
+        // storing messages under a different villager if another one is nearer at send-time.
+        Villager v = (this.villagerEntityId != null) ? resolveVillagerFromId(this.villagerEntityId) : null;
 
         VillagerBrain.Context context = new VillagerBrain.Context(
-                conversationId,
-                villagerName,
-                profession,
+                this.conversationId,
+                this.villagerName,
+                this.villagerProfession,
                 worldName
         );
 
         // Pass the villager position so the chat service can play the sound at the correct location
         OllamaMod.CHAT_SERVICE.sendPlayerMessage(
-                conversationId,
+                this.conversationId,
                 context,
                 text,
                 callbacks,
@@ -585,7 +560,10 @@ public class OllamaVillagerChatScreen extends Screen {
             appendSystemMessage(
                 "Available commands:\n" +
                 "/help - Show this help message\n" +
-                "/clearmemory - Clear all memories and chat history for this villager"
+                "/clearmemory - Clear all memories and chat history for this villager\n" +
+                "/clearhistory - Clear only the in-memory chat history (keeps long-term memories)\n" +
+                "/who - Show current villager name, profession, and conversation ID\n" +
+                "/recall - Show top memories the villager has for this conversation"
             );
         } else if (command.equals("/clearmemory")) {
             ensurePersonaResolved();
@@ -593,6 +571,42 @@ public class OllamaVillagerChatScreen extends Screen {
             OllamaMod.CHAT_HISTORY.clear(conversationId);
             chatMessages.clear();
             appendSystemMessage("Memory and chat history cleared for this villager.");
+        } else if (command.equals("/clearhistory")) {
+            ensurePersonaResolved();
+            OllamaMod.CHAT_HISTORY.clear(conversationId);
+            chatMessages.clear();
+            appendSystemMessage("Chat history cleared. Long-term memories are preserved.");
+        } else if (command.equals("/who")) {
+            ensurePersonaResolved();
+            appendSystemMessage(
+                "Villager: " + villagerName + "\n" +
+                "Profession: " + villagerProfession + "\n" +
+                "Conversation ID: " + (conversationId != null ? conversationId.toString() : "none")
+            );
+        } else if (command.equals("/recall")) {
+            ensurePersonaResolved();
+            if (conversationId == null) {
+                appendSystemMessage("No conversation active.");
+                return;
+            }
+            appendSystemMessage("Fetching memories...");
+            OllamaMod.VECTOR_STORE.queryMemories("recent memories", conversationId.toString(), 5)
+                .whenComplete((docs, err) -> net.minecraft.client.Minecraft.getInstance().execute(() -> {
+                    // Remove the "Fetching memories..." placeholder
+                    if (!chatMessages.isEmpty()) chatMessages.remove(chatMessages.size() - 1);
+                    if (err != null || docs == null || docs.isEmpty()) {
+                        appendSystemMessage("No memories found for this villager.");
+                    } else {
+                        StringBuilder sb = new StringBuilder("Top memories for this villager:\n");
+                        for (int i = 0; i < docs.size(); i++) {
+                            String content = docs.get(i).content();
+                            if (content == null) continue;
+                            String snippet = content.length() > 120 ? content.substring(0, 117) + "..." : content;
+                            sb.append((i + 1)).append(". ").append(snippet.replace('\n', ' ')).append("\n");
+                        }
+                        appendSystemMessage(sb.toString().trim());
+                    }
+                }));
         } else {
             appendSystemMessage("Unknown command. Type /help for available commands.");
         }
@@ -605,12 +619,15 @@ public class OllamaVillagerChatScreen extends Screen {
     }
 
     private void ensurePersonaResolved() {
-        if (this.conversationId != null && this.villagerEntityId != null) {
-            // still refresh name/profession in case they changed
-            Villager v = resolveVillagerFromId(this.villagerEntityId);
-            if (v != null) {
-                this.villagerName = resolveName(v);
-                this.villagerProfession = prettyProfession(v);
+        // Once conversationId is set (real villager or random fallback), never change it for this screen instance.
+        if (this.conversationId != null) {
+            if (this.villagerEntityId != null) {
+                // Refresh display name/profession in case they changed, but don't alter conversationId.
+                Villager v = resolveVillagerFromId(this.villagerEntityId);
+                if (v != null) {
+                    this.villagerName = resolveName(v);
+                    this.villagerProfession = prettyProfession(v);
+                }
             }
             return;
         }

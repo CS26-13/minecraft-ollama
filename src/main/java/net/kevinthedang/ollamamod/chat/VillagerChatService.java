@@ -54,8 +54,7 @@ public class VillagerChatService {
                         mc.execute(() -> {
                             if (throwable != null) {
                                 OllamaMod.LOGGER.error("Error getting reply from Ollama for conversation {}", context.conversationId(), throwable);
-                                ui.onError("Villager is confused (Ollama error). " +
-                                        "Is Ollama running at " + OllamaSettings.baseUrl + "?");
+                                ui.onError(describeError(throwable));
                                 return;
                             }
                             historyManager.append(conversationId,
@@ -101,10 +100,7 @@ public class VillagerChatService {
                             context.conversationId(), t);
 
                     Minecraft mc = Minecraft.getInstance();
-                    mc.execute(() -> ui.onError(
-                            "Villager is confused (Ollama error). " +
-                            "Is Ollama running at " + OllamaSettings.baseUrl + "?"
-                    ));
+                    mc.execute(() -> ui.onError(describeError(t)));
                 }
             });
         }
@@ -143,5 +139,26 @@ public class VillagerChatService {
 
     public List<ChatMessage> getHistory(UUID conversationId) {
         return historyManager.getHistory(conversationId);
+    }
+
+    // Returns a human-readable error message based on the exception type.
+    private static String describeError(Throwable t) {
+        if (t == null) return "Unknown error.";
+        Throwable cause = t.getCause() != null ? t.getCause() : t;
+        String msg = cause.getMessage() != null ? cause.getMessage() : "";
+
+        if (cause instanceof java.net.ConnectException || msg.contains("Connection refused")) {
+            return "Ollama is not running at " + OllamaSettings.baseUrl + ". Start Ollama and try again.";
+        }
+        if (msg.contains("404")) {
+            return "Model not found on Ollama. Run: ollama pull <model>";
+        }
+        if (msg.contains("500")) {
+            return "Ollama internal error. Check Ollama logs.";
+        }
+        if (cause instanceof java.net.http.HttpTimeoutException || msg.contains("timed out") || msg.contains("timeout")) {
+            return "Ollama request timed out. Ollama may be overloaded.";
+        }
+        return "Villager is confused. " + (msg.isEmpty() ? cause.getClass().getSimpleName() : msg);
     }
 }

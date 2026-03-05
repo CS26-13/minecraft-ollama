@@ -86,10 +86,18 @@ public class AgenticRagVillagerBrain implements VillagerBrain {
 				this.prefetchedMemories = memories;
 				injectPrefetchedContext(messages, List.of(), memories);
 				System.out.println("[AgenticRAG] Fast path (chatModel, no tools, memories=" + memories.size() + ")");
-				return sendNonStreaming(messages, false, OllamaSettings.chatModel).thenApply(responseBody -> {
-					JsonObject root = JsonParser.parseString(responseBody).getAsJsonObject();
-					return extractContent(root.getAsJsonObject("message"));
-				});
+				return sendNonStreaming(messages, false, OllamaSettings.chatModel)
+						.thenApply(responseBody -> {
+							JsonObject root = JsonParser.parseString(responseBody).getAsJsonObject();
+							return extractContent(root.getAsJsonObject("message"));
+						})
+						.exceptionallyCompose(e -> {
+							OllamaMod.LOGGER.warn("[AgenticRAG] chatModel unavailable, retrying with toolModel: {}", e.getMessage());
+							return sendNonStreaming(messages, false, OllamaSettings.toolModel).thenApply(responseBody -> {
+								JsonObject root = JsonParser.parseString(responseBody).getAsJsonObject();
+								return extractContent(root.getAsJsonObject("message"));
+							});
+						});
 			});
 		}
 
@@ -108,10 +116,18 @@ public class AgenticRagVillagerBrain implements VillagerBrain {
 				// Docs found — respond directly, no tools needed
 				System.out.println("[AgenticRAG] Retriever path: direct reply (docs=" + prefetchedDocs.size()
 						+ ", memories=" + prefetchedMemories.size() + ")");
-				return sendNonStreaming(messages, false, OllamaSettings.toolModel).thenApply(responseBody -> {
-					JsonObject root = JsonParser.parseString(responseBody).getAsJsonObject();
-					return extractContent(root.getAsJsonObject("message"));
-				});
+				return sendNonStreaming(messages, false, OllamaSettings.toolModel)
+						.thenApply(responseBody -> {
+							JsonObject root = JsonParser.parseString(responseBody).getAsJsonObject();
+							return extractContent(root.getAsJsonObject("message"));
+						})
+						.exceptionallyCompose(e -> {
+							OllamaMod.LOGGER.warn("[AgenticRAG] toolModel unavailable, retrying with chatModel: {}", e.getMessage());
+							return sendNonStreaming(messages, false, OllamaSettings.chatModel).thenApply(responseBody -> {
+								JsonObject root = JsonParser.parseString(responseBody).getAsJsonObject();
+								return extractContent(root.getAsJsonObject("message"));
+							});
+						});
 			}
 
 			// No docs found — fall back to tool loop for accuracy
@@ -178,7 +194,7 @@ public class AgenticRagVillagerBrain implements VillagerBrain {
 				this.prefetchedMemories = memories;
 				injectPrefetchedContext(messages, List.of(), memories);
 				System.out.println("[AgenticRAG] Fast path (chatModel, no tools, streaming, memories=" + memories.size() + ")");
-				streamFinalReply(messages, callbacks, OllamaSettings.chatModel);
+				streamFinalReply(messages, callbacks, OllamaSettings.chatModel, OllamaSettings.toolModel);
 			}).exceptionally(e -> {
 				callbacks.onError(e);
 				return null;
@@ -204,7 +220,7 @@ public class AgenticRagVillagerBrain implements VillagerBrain {
 				// Docs found — stream directly, no tools needed
 				System.out.println("[AgenticRAG] Retriever path: streaming (docs=" + docs.size()
 						+ ", memories=" + memories.size() + ")");
-				streamFinalReply(messages, callbacks, OllamaSettings.toolModel);
+				streamFinalReply(messages, callbacks, OllamaSettings.toolModel, OllamaSettings.chatModel);
 				return CompletableFuture.completedFuture((Void) null);
 			}
 
@@ -313,7 +329,12 @@ public class AgenticRagVillagerBrain implements VillagerBrain {
 	}
 
 	// Sends a final streaming call without tools to generate the synthesized response.
+	// If the primary model fails and fallbackModel is non-null, retries with the fallback.
 	private void streamFinalReply(List<Map<String, Object>> messages, StreamCallbacks callbacks, String model) {
+		streamFinalReply(messages, callbacks, model, null);
+	}
+
+	private void streamFinalReply(List<Map<String, Object>> messages, StreamCallbacks callbacks, String model, String fallbackModel) {
 		Map<String, Object> requestBody = buildOllamaRequestBody(messages, true, false, model);
 		String json = gson.toJson(requestBody);
 
@@ -363,7 +384,13 @@ public class AgenticRagVillagerBrain implements VillagerBrain {
 
 				callbacks.onCompleted(fullReply.toString());
 			} catch (Exception e) {
-				callbacks.onError(e);
+				if (fallbackModel != null) {
+					OllamaMod.LOGGER.warn("[AgenticRAG] {} unavailable, falling back to {}: {}", model, fallbackModel, e.getMessage());
+					callbacks.onDelta("[System: " + model + " unavailable, switching to " + fallbackModel + "]\n");
+					streamFinalReply(messages, callbacks, fallbackModel, null);
+				} else {
+					callbacks.onError(e);
+				}
 			}
 		}, "AgenticRAG-Ollama-Streaming-Thread");
 

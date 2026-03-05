@@ -122,24 +122,37 @@ public final class OllamaMod {
 
     @Mod.EventBusSubscriber(modid = MOD_ID, bus = Mod.EventBusSubscriber.Bus.FORGE)
     public static class WorldEventHandler {
-        // Persist vector store data when the world is saved.
+        // Persist vector store data and chat history when the world is saved.
         @SubscribeEvent
         public static void onWorldSave(LevelEvent.Save event) {
             if (event.getLevel() instanceof ServerLevel serverLevel) {
-                VECTOR_STORE.persistAll(serverLevel.getServer().getWorldPath(LevelResource.ROOT));
-                LOGGER.debug("Vector store persisted");
+                java.nio.file.Path root = serverLevel.getServer().getWorldPath(LevelResource.ROOT);
+                VECTOR_STORE.persistAll(root);
+                CHAT_HISTORY.persistAll(root);
+                LOGGER.debug("Vector store and chat history persisted");
             }
         }
 
-        // Load vector store data (including seed data) when the world loads.
+        // Load vector store data and chat history when the world loads.
         @SubscribeEvent
         public static void onWorldLoad(LevelEvent.Load event) {
             if (event.getLevel() instanceof ServerLevel serverLevel) {
-                VECTOR_STORE.loadAll(serverLevel.getServer().getWorldPath(LevelResource.ROOT));
+                java.nio.file.Path root = serverLevel.getServer().getWorldPath(LevelResource.ROOT);
+                VECTOR_STORE.loadAll(root);
+                CHAT_HISTORY.loadAll(root);
                 if (VECTOR_STORE.count(net.kevinthedang.ollamamod.vectorstore.model.MetadataFilter.all()) == 0) {
                     VECTOR_STORE.loadSeedData();
                 }
-                LOGGER.debug("Vector store loaded");
+                LOGGER.debug("Vector store and chat history loaded");
+            }
+        }
+
+        // Clear in-memory chat history when a world unloads — data is already on disk.
+        @SubscribeEvent
+        public static void onWorldUnload(LevelEvent.Unload event) {
+            if (event.getLevel() instanceof ServerLevel) {
+                CHAT_HISTORY.clearAll();
+                LOGGER.debug("Chat history cleared on world unload");
             }
         }
     }
