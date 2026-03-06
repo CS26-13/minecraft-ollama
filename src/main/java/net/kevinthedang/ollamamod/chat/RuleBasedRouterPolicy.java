@@ -9,7 +9,7 @@ public class RuleBasedRouterPolicy implements RouterPolicy {
     // even if history suggests a follow-up to a retrieval conversation
     private static final String[] FAST_PATH_KEYWORDS = {
             // Time / weather (answered by FACTS)
-            "what time", "time is it", "weather", "raining", "sunny", "thundering",
+            "what time", "time is it", "weather", "rain", "sunny", "thundering", "storm", "snow",
             "is it day", "is it night",
             // Greetings / farewells
             "hello", "hey", "hi", "howdy", "good morning", "good evening",
@@ -54,11 +54,12 @@ public class RuleBasedRouterPolicy implements RouterPolicy {
 
         boolean wantsWorld = true;
 
-        // Memory is always included — it's cheap (~100ms) and ensures name/context recall
-        boolean wantsMemory = true;
-
         // Fast-path override: questions answerable from FACTS always skip retrieval
         boolean forceFastPath = containsAny(m, FAST_PATH_KEYWORDS);
+
+        // Fast-path questions (weather/time/greetings) are answered by FACTS alone;
+        // injecting memory risks stale world-state overriding live sensor readings.
+        boolean wantsMemory = !forceFastPath;
 
         boolean wantsRetriever = !forceFastPath && containsAny(m, RETRIEVER_KEYWORDS);
 

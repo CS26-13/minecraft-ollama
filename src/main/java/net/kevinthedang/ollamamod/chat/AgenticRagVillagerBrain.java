@@ -67,6 +67,8 @@ public class AgenticRagVillagerBrain implements VillagerBrain {
 		WorldFactBundle worldFacts = worldContextTool.collect(context, history, playerMessage);
 		RoutePlan plan = router.plan(context, history, playerMessage);
 		String retrievalQuery = plan.effectiveQuery(playerMessage);
+		System.out.println("[AgenticRAG] facts=" + worldFacts.facts().size());
+		worldFacts.facts().forEach(f -> System.out.println("[AgenticRAG]   fact: " + f.factText()));
 		System.out.println("[AgenticRAG] Route: useRetriever=" + plan.useRetriever() + " useMemory=" + plan.useMemory());
 		if (!retrievalQuery.equals(playerMessage)) {
 			System.out.println("[AgenticRAG] Augmented retrieval query: " + retrievalQuery);
@@ -75,10 +77,10 @@ public class AgenticRagVillagerBrain implements VillagerBrain {
 		List<Map<String, Object>> messages = toObjectMaps(
 				promptComposer.buildMessages(context, history, playerMessage, worldFacts));
 
-		// Always pre-fetch memories — cheap (~100ms) and ensures name/context recall
-		CompletableFuture<List<VectorDocument>> memFut = OllamaMod.VECTOR_STORE
-				.queryMemories(retrievalQuery, context.conversationId().toString(), VectorStoreSettings.defaultTopK)
-				.exceptionally(e -> List.of());
+		CompletableFuture<List<VectorDocument>> memFut = plan.useMemory()
+				? OllamaMod.VECTOR_STORE.queryMemories(retrievalQuery, context.conversationId().toString(), VectorStoreSettings.defaultTopK)
+						.exceptionally(e -> List.of())
+				: CompletableFuture.completedFuture(List.of());
 
 		if (!plan.useRetriever()) {
 			// Fast path: FACTS + history + memories, no tools, fast model
@@ -173,8 +175,8 @@ public class AgenticRagVillagerBrain implements VillagerBrain {
 		WorldFactBundle worldFacts = worldContextTool.collect(context, history, playerMessage);
 		RoutePlan plan = router.plan(context, history, playerMessage);
 		String retrievalQuery = plan.effectiveQuery(playerMessage);
-		System.out.println("[AgenticRAG] facts=" + worldFacts.facts().size()
-				+ " first=" + (worldFacts.facts().isEmpty() ? "none" : worldFacts.facts().get(0).factText()));
+		System.out.println("[AgenticRAG] facts=" + worldFacts.facts().size());
+		worldFacts.facts().forEach(f -> System.out.println("[AgenticRAG]   fact: " + f.factText()));
 		System.out.println("[AgenticRAG] Route: useRetriever=" + plan.useRetriever() + " useMemory=" + plan.useMemory());
 		if (!retrievalQuery.equals(playerMessage)) {
 			System.out.println("[AgenticRAG] Augmented retrieval query: " + retrievalQuery);
@@ -183,10 +185,10 @@ public class AgenticRagVillagerBrain implements VillagerBrain {
 		List<Map<String, Object>> messages = toObjectMaps(
 				promptComposer.buildMessages(context, history, playerMessage, worldFacts));
 
-		// Always pre-fetch memories — cheap (~100ms) and ensures name/context recall
-		CompletableFuture<List<VectorDocument>> memFut = OllamaMod.VECTOR_STORE
-				.queryMemories(retrievalQuery, context.conversationId().toString(), VectorStoreSettings.defaultTopK)
-				.exceptionally(e -> List.of());
+		CompletableFuture<List<VectorDocument>> memFut = plan.useMemory()
+				? OllamaMod.VECTOR_STORE.queryMemories(retrievalQuery, context.conversationId().toString(), VectorStoreSettings.defaultTopK)
+						.exceptionally(e -> List.of())
+				: CompletableFuture.completedFuture(List.of());
 
 		if (!plan.useRetriever()) {
 			// Fast path: FACTS + history + memories, no tools, stream directly with fast model
@@ -321,9 +323,10 @@ public class AgenticRagVillagerBrain implements VillagerBrain {
 			sb.append('\n');
 		}
 		if (sb.length() > 0) {
-			sb.append("IMPORTANT: Answer the player's question in plain natural language using FACTS and the context above.\n");
-			sb.append("Do NOT call tools if the answer is already in FACTS or the context above.\n");
-			sb.append("Only use search_knowledge or recall_memory if neither FACTS nor the context above answers the question.\n");
+			sb.append("IMPORTANT: Answer the player's question in plain natural language.\n");
+			sb.append("FACTS (live sensor readings) always override MEMORY for current world state such as weather, time, and location. MEMORY may be outdated.\n");
+			sb.append("Do NOT call tools if the answer is already in FACTS or MEMORY.\n");
+			sb.append("Only use search_knowledge or recall_memory if neither FACTS nor MEMORY answers the question.\n");
 		}
 		return sb.toString().trim();
 	}

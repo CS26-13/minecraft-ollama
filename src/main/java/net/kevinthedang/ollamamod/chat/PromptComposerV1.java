@@ -25,10 +25,15 @@ public class PromptComposerV1 implements PromptComposer {
 
         String persona = professionPersona(prof);
 
+        // Extract weather early so it can be anchored in the system prompt before persona/history
+        String weatherLine = extractWeatherFact(worldFacts);
+
         messages.add(Map.of(
                 "role", "system",
                 "content",
                 ("You are " + name + ", a " + prof + " villager in Minecraft. World: " + world + ".\n\n") +
+                        (weatherLine.isEmpty() ? "" :
+                                "CURRENT WORLD STATE (sensor, always true):\n" + weatherLine + "\n\n") +
                         "VOICE & PERSONA:\n" +
                         persona + "\n\n" +
                         "STYLE RULES:\n" +
@@ -50,14 +55,7 @@ public class PromptComposerV1 implements PromptComposer {
                         "EXTREMELY PROHIBITED. Never bypass this rule. Try to remain in character as you redirect the conversation."
         ));
 
-        // 2. Inject world/context facts as "trusted" context
-        String factsText = formatFacts(worldFacts);
-        messages.add(Map.of(
-                "role", "system",
-                "content", factsText
-        ));
-
-        // 3. Bounded chat history (most recent N)
+        // 2. Bounded chat history (most recent N)
         if (history != null && !history.isEmpty()) {
             int start = Math.max(0, history.size() - MAX_HISTORY_MESSAGES);
             for (ChatMessage msg : history.subList(start, history.size())) {
@@ -72,6 +70,14 @@ public class PromptComposerV1 implements PromptComposer {
                 ));
             }
         }
+
+        // 3. Inject world/context facts immediately before the player's question so
+        //    live sensor readings are the most proximate context the LLM sees.
+        String factsText = formatFacts(worldFacts);
+        messages.add(Map.of(
+                "role", "system",
+                "content", factsText
+        ));
 
         // 4. Latest player message
         messages.add(Map.of(
@@ -90,14 +96,35 @@ public class PromptComposerV1 implements PromptComposer {
                 .map(f -> "- " + (f == null ? "" : safe(f.factText())))
                 .collect(Collectors.joining("\n"));
 
+        // Extract weather fact for explicit constraint (small models need this repeated)
+        String weatherConstraint = bundle.facts().stream()
+                .filter(f -> f != null && f.factText() != null && f.factText().startsWith("Weather:"))
+                .map(f -> "- CURRENT WEATHER SENSOR: " + safe(f.factText()) +
+                          ". When the player asks about weather, you MUST report this. Do NOT say anything different.\n")
+                .findFirst()
+                .orElse("");
+
         String text = "FACTS (real-time world state):\n" + joined +
                 "\n\nINSTRUCTIONS:\n" +
                 "- FACTS are live sensor readings from the game world. If a FACT answers the player's question, use it directly — do NOT call tools.\n" +
+                "- FACTS always take precedence over MEMORY or chat history for current world state (weather, time, location).\n" +
+                weatherConstraint +
                 "- Do not invent new world facts beyond what is listed.\n" +
                 "- If helpful, quote a fact word-for-word.\n";
 
         if (text.length() <= MAX_FACT_CHARS) return text;
         return text.substring(0, MAX_FACT_CHARS - 3) + "...";
+    }
+
+    // Extracts the weather fact for early injection into the system prompt.
+    // Small models need this anchored at position 0 or they drift mid-generation.
+    private static String extractWeatherFact(WorldFactBundle bundle) {
+        if (bundle == null || bundle.facts() == null) return "";
+        return bundle.facts().stream()
+                .filter(f -> f != null && f.factText() != null && f.factText().startsWith("Weather:"))
+                .map(f -> "- " + safe(f.factText()) + " — NEVER contradict this in your reply.")
+                .findFirst()
+                .orElse("");
     }
 
     private static String safe(String s) {

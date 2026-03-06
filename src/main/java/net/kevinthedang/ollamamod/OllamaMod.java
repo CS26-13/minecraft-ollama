@@ -13,8 +13,10 @@ import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.storage.LevelResource;
 import net.minecraftforge.api.distmarker.Dist;
 import net.minecraftforge.client.event.ScreenEvent;
+import net.minecraftforge.event.entity.player.PlayerInteractEvent;
 import net.minecraftforge.event.level.LevelEvent;
 import net.minecraftforge.eventbus.api.listener.SubscribeEvent;
+import net.minecraft.world.entity.npc.Villager;
 import net.minecraftforge.fml.common.Mod;
 import net.minecraftforge.fml.config.ModConfig;
 import net.minecraftforge.fml.event.lifecycle.FMLClientSetupEvent;
@@ -89,6 +91,19 @@ public final class OllamaMod {
     @Mod.EventBusSubscriber(modid = MOD_ID, bus = Mod.EventBusSubscriber.Bus.FORGE, value = Dist.CLIENT)
     public static class VillagerScreenHandler {
 
+        // Stores the entity ID of the last villager the player right-clicked, so the chat screen
+        // can lock to the exact entity rather than using the nearest-villager heuristic.
+        private static volatile Integer lastInteractedVillagerId = null;
+
+        // Capture the entity ID when the player right-clicks a villager.
+        @SubscribeEvent
+        public static void onEntityInteract(PlayerInteractEvent.EntityInteract event) {
+            if (event.getTarget() instanceof Villager villager) {
+                lastInteractedVillagerId = villager.getId();
+                LOGGER.debug("Player interacted with villager entity id={}", lastInteractedVillagerId);
+            }
+        }
+
         // Inject the villager chat button into the merchant screen.
         @SubscribeEvent
         public static void onScreenInit(ScreenEvent.Init.Post event) {
@@ -107,16 +122,18 @@ public final class OllamaMod {
 
         // Handle the villager chat button click.
         private static void handleChatButtonClick(MerchantScreen screen) {
-            // button click handler
             Minecraft mc = Minecraft.getInstance();
             Player player = mc.player;
-            if (player != null) {
-                player.displayClientMessage(Component.literal("Opening Villager chat..."), true);
-                LOGGER.info("Chat button was clicked!");
+            if (player == null) return;
 
-                screen.onClose();
-                mc.setScreen(new OllamaVillagerChatScreen(screen));
-            }
+            // Use the entity ID captured at right-click time (more reliable than nearest-villager heuristic).
+            Integer villagerEntityId = lastInteractedVillagerId;
+
+            player.displayClientMessage(Component.literal("Opening Villager chat..."), true);
+            LOGGER.info("Chat button was clicked! Locking to entity id={}", villagerEntityId);
+
+            screen.onClose();
+            mc.setScreen(new OllamaVillagerChatScreen(screen, villagerEntityId));
         }
     }
 
