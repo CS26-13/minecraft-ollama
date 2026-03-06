@@ -9,7 +9,7 @@ public class RuleBasedRouterPolicy implements RouterPolicy {
     // even if history suggests a follow-up to a retrieval conversation
     private static final String[] FAST_PATH_KEYWORDS = {
             // Time / weather (answered by FACTS)
-            "what time", "time is it", "weather", "raining", "sunny", "thundering",
+            "what time", "time is it", "weather", "rain", "sunny", "thundering", "storm", "snow",
             "is it day", "is it night",
             // Greetings / farewells
             "hello", "hey", "hi", "howdy", "good morning", "good evening",
@@ -37,6 +37,11 @@ public class RuleBasedRouterPolicy implements RouterPolicy {
             "explain",
     };
 
+    // Pronouns/references that indicate a vague follow-up query — augment regardless of retriever keywords
+    private static final String[] REFERENCE_PRONOUNS = {
+            " it", " this", " that", " those", " them", " its", " these"
+    };
+
     // Number of recent history messages to scan for follow-up detection
     private static final int HISTORY_LOOKBACK = 4;
 
@@ -49,11 +54,12 @@ public class RuleBasedRouterPolicy implements RouterPolicy {
 
         boolean wantsWorld = true;
 
-        // Memory is always included — it's cheap (~100ms) and ensures name/context recall
-        boolean wantsMemory = true;
-
         // Fast-path override: questions answerable from FACTS always skip retrieval
         boolean forceFastPath = containsAny(m, FAST_PATH_KEYWORDS);
+
+        // Fast-path questions (weather/time/greetings) are answered by FACTS alone;
+        // injecting memory risks stale world-state overriding live sensor readings.
+        boolean wantsMemory = !forceFastPath;
 
         boolean wantsRetriever = !forceFastPath && containsAny(m, RETRIEVER_KEYWORDS);
 
@@ -107,8 +113,10 @@ public class RuleBasedRouterPolicy implements RouterPolicy {
         return false;
     }
 
-    // Checks whether the current message is vague (no retriever keywords or very short).
+    // Checks whether the current message is vague (pronoun-dependent, no retriever keywords, or very short).
     private boolean isVagueQuery(String message) {
+        // Pronoun references are always vague — augment regardless of retriever keywords
+        if (containsAny(message, REFERENCE_PRONOUNS)) return true;
         if (containsAny(message, RETRIEVER_KEYWORDS)) return false;
         String[] words = message.trim().split("\\s+");
         return words.length < VAGUE_WORD_THRESHOLD;

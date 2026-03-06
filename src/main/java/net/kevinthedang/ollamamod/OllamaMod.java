@@ -13,8 +13,10 @@ import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.storage.LevelResource;
 import net.minecraftforge.api.distmarker.Dist;
 import net.minecraftforge.client.event.ScreenEvent;
+import net.minecraftforge.event.entity.player.PlayerInteractEvent;
 import net.minecraftforge.event.level.LevelEvent;
 import net.minecraftforge.eventbus.api.listener.SubscribeEvent;
+import net.minecraft.world.entity.npc.Villager;
 import net.minecraftforge.fml.common.Mod;
 import net.minecraftforge.fml.config.ModConfig;
 import net.minecraftforge.fml.event.lifecycle.FMLClientSetupEvent;
@@ -89,6 +91,19 @@ public final class OllamaMod {
     @Mod.EventBusSubscriber(modid = MOD_ID, bus = Mod.EventBusSubscriber.Bus.FORGE, value = Dist.CLIENT)
     public static class VillagerScreenHandler {
 
+        // Stores the entity ID of the last villager the player right-clicked, so the chat screen
+        // can lock to the exact entity rather than using the nearest-villager heuristic.
+        private static volatile Integer lastInteractedVillagerId = null;
+
+        // Capture the entity ID when the player right-clicks a villager.
+        @SubscribeEvent
+        public static void onEntityInteract(PlayerInteractEvent.EntityInteract event) {
+            if (event.getTarget() instanceof Villager villager) {
+                lastInteractedVillagerId = villager.getId();
+                LOGGER.debug("Player interacted with villager entity id={}", lastInteractedVillagerId);
+            }
+        }
+
         // Inject the villager chat button into the merchant screen.
         @SubscribeEvent
         public static void onScreenInit(ScreenEvent.Init.Post event) {
@@ -107,39 +122,54 @@ public final class OllamaMod {
 
         // Handle the villager chat button click.
         private static void handleChatButtonClick(MerchantScreen screen) {
-            // button click handler
             Minecraft mc = Minecraft.getInstance();
             Player player = mc.player;
-            if (player != null) {
-                player.displayClientMessage(Component.literal("Opening Villager chat..."), true);
-                LOGGER.info("Chat button was clicked!");
+            if (player == null) return;
 
-                screen.onClose();
-                mc.setScreen(new OllamaVillagerChatScreen(screen));
-            }
+            // Use the entity ID captured at right-click time (more reliable than nearest-villager heuristic).
+            Integer villagerEntityId = lastInteractedVillagerId;
+
+            player.displayClientMessage(Component.literal("Opening Villager chat..."), true);
+            LOGGER.info("Chat button was clicked! Locking to entity id={}", villagerEntityId);
+
+            screen.onClose();
+            mc.setScreen(new OllamaVillagerChatScreen(screen, villagerEntityId));
         }
     }
 
     @Mod.EventBusSubscriber(modid = MOD_ID, bus = Mod.EventBusSubscriber.Bus.FORGE)
     public static class WorldEventHandler {
-        // Persist vector store data when the world is saved.
+        // Persist vector store data and chat history when the world is saved.
         @SubscribeEvent
         public static void onWorldSave(LevelEvent.Save event) {
             if (event.getLevel() instanceof ServerLevel serverLevel) {
-                VECTOR_STORE.persistAll(serverLevel.getServer().getWorldPath(LevelResource.ROOT));
-                LOGGER.debug("Vector store persisted");
+                java.nio.file.Path root = serverLevel.getServer().getWorldPath(LevelResource.ROOT);
+                VECTOR_STORE.persistAll(root);
+                CHAT_HISTORY.persistAll(root);
+                LOGGER.debug("Vector store and chat history persisted");
             }
         }
 
-        // Load vector store data (including seed data) when the world loads.
+        // Load vector store data and chat history when the world loads.
         @SubscribeEvent
         public static void onWorldLoad(LevelEvent.Load event) {
             if (event.getLevel() instanceof ServerLevel serverLevel) {
-                VECTOR_STORE.loadAll(serverLevel.getServer().getWorldPath(LevelResource.ROOT));
+                java.nio.file.Path root = serverLevel.getServer().getWorldPath(LevelResource.ROOT);
+                VECTOR_STORE.loadAll(root);
+                CHAT_HISTORY.loadAll(root);
                 if (VECTOR_STORE.count(net.kevinthedang.ollamamod.vectorstore.model.MetadataFilter.all()) == 0) {
                     VECTOR_STORE.loadSeedData();
                 }
-                LOGGER.debug("Vector store loaded");
+                LOGGER.debug("Vector store and chat history loaded");
+            }
+        }
+
+        // Clear in-memory chat history when a world unloads — data is already on disk.
+        @SubscribeEvent
+        public static void onWorldUnload(LevelEvent.Unload event) {
+            if (event.getLevel() instanceof ServerLevel) {
+                CHAT_HISTORY.clearAll();
+                LOGGER.debug("Chat history cleared on world unload");
             }
         }
     }

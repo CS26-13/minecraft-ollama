@@ -67,6 +67,8 @@ public class AgenticRagVillagerBrain implements VillagerBrain {
 		WorldFactBundle worldFacts = worldContextTool.collect(context, history, playerMessage);
 		RoutePlan plan = router.plan(context, history, playerMessage);
 		String retrievalQuery = plan.effectiveQuery(playerMessage);
+		System.out.println("[AgenticRAG] facts=" + worldFacts.facts().size());
+		worldFacts.facts().forEach(f -> System.out.println("[AgenticRAG]   fact: " + f.factText()));
 		System.out.println("[AgenticRAG] Route: useRetriever=" + plan.useRetriever() + " useMemory=" + plan.useMemory());
 		if (!retrievalQuery.equals(playerMessage)) {
 			System.out.println("[AgenticRAG] Augmented retrieval query: " + retrievalQuery);
@@ -75,10 +77,10 @@ public class AgenticRagVillagerBrain implements VillagerBrain {
 		List<Map<String, Object>> messages = toObjectMaps(
 				promptComposer.buildMessages(context, history, playerMessage, worldFacts));
 
-		// Always pre-fetch memories — cheap (~100ms) and ensures name/context recall
-		CompletableFuture<List<VectorDocument>> memFut = OllamaMod.VECTOR_STORE
-				.queryMemories(retrievalQuery, context.conversationId().toString(), VectorStoreSettings.defaultTopK)
-				.exceptionally(e -> List.of());
+		CompletableFuture<List<VectorDocument>> memFut = plan.useMemory()
+				? OllamaMod.VECTOR_STORE.queryMemories(retrievalQuery, context.conversationId().toString(), VectorStoreSettings.defaultTopK)
+						.exceptionally(e -> List.of())
+				: CompletableFuture.completedFuture(List.of());
 
 		if (!plan.useRetriever()) {
 			// Fast path: FACTS + history + memories, no tools, fast model
@@ -86,10 +88,18 @@ public class AgenticRagVillagerBrain implements VillagerBrain {
 				this.prefetchedMemories = memories;
 				injectPrefetchedContext(messages, List.of(), memories);
 				System.out.println("[AgenticRAG] Fast path (chatModel, no tools, memories=" + memories.size() + ")");
-				return sendNonStreaming(messages, false, OllamaSettings.chatModel).thenApply(responseBody -> {
-					JsonObject root = JsonParser.parseString(responseBody).getAsJsonObject();
-					return extractContent(root.getAsJsonObject("message"));
-				});
+				return sendNonStreaming(messages, false, OllamaSettings.chatModel)
+						.thenApply(responseBody -> {
+							JsonObject root = JsonParser.parseString(responseBody).getAsJsonObject();
+							return extractContent(root.getAsJsonObject("message"));
+						})
+						.exceptionallyCompose(e -> {
+							OllamaMod.LOGGER.warn("[AgenticRAG] chatModel unavailable, retrying with toolModel: {}", e.getMessage());
+							return sendNonStreaming(messages, false, OllamaSettings.toolModel).thenApply(responseBody -> {
+								JsonObject root = JsonParser.parseString(responseBody).getAsJsonObject();
+								return extractContent(root.getAsJsonObject("message"));
+							});
+						});
 			});
 		}
 
@@ -108,10 +118,18 @@ public class AgenticRagVillagerBrain implements VillagerBrain {
 				// Docs found — respond directly, no tools needed
 				System.out.println("[AgenticRAG] Retriever path: direct reply (docs=" + prefetchedDocs.size()
 						+ ", memories=" + prefetchedMemories.size() + ")");
-				return sendNonStreaming(messages, false, OllamaSettings.toolModel).thenApply(responseBody -> {
-					JsonObject root = JsonParser.parseString(responseBody).getAsJsonObject();
-					return extractContent(root.getAsJsonObject("message"));
-				});
+				return sendNonStreaming(messages, false, OllamaSettings.toolModel)
+						.thenApply(responseBody -> {
+							JsonObject root = JsonParser.parseString(responseBody).getAsJsonObject();
+							return extractContent(root.getAsJsonObject("message"));
+						})
+						.exceptionallyCompose(e -> {
+							OllamaMod.LOGGER.warn("[AgenticRAG] toolModel unavailable, retrying with chatModel: {}", e.getMessage());
+							return sendNonStreaming(messages, false, OllamaSettings.chatModel).thenApply(responseBody -> {
+								JsonObject root = JsonParser.parseString(responseBody).getAsJsonObject();
+								return extractContent(root.getAsJsonObject("message"));
+							});
+						});
 			}
 
 			// No docs found — fall back to tool loop for accuracy
@@ -157,8 +175,8 @@ public class AgenticRagVillagerBrain implements VillagerBrain {
 		WorldFactBundle worldFacts = worldContextTool.collect(context, history, playerMessage);
 		RoutePlan plan = router.plan(context, history, playerMessage);
 		String retrievalQuery = plan.effectiveQuery(playerMessage);
-		System.out.println("[AgenticRAG] facts=" + worldFacts.facts().size()
-				+ " first=" + (worldFacts.facts().isEmpty() ? "none" : worldFacts.facts().get(0).factText()));
+		System.out.println("[AgenticRAG] facts=" + worldFacts.facts().size());
+		worldFacts.facts().forEach(f -> System.out.println("[AgenticRAG]   fact: " + f.factText()));
 		System.out.println("[AgenticRAG] Route: useRetriever=" + plan.useRetriever() + " useMemory=" + plan.useMemory());
 		if (!retrievalQuery.equals(playerMessage)) {
 			System.out.println("[AgenticRAG] Augmented retrieval query: " + retrievalQuery);
@@ -167,10 +185,10 @@ public class AgenticRagVillagerBrain implements VillagerBrain {
 		List<Map<String, Object>> messages = toObjectMaps(
 				promptComposer.buildMessages(context, history, playerMessage, worldFacts));
 
-		// Always pre-fetch memories — cheap (~100ms) and ensures name/context recall
-		CompletableFuture<List<VectorDocument>> memFut = OllamaMod.VECTOR_STORE
-				.queryMemories(retrievalQuery, context.conversationId().toString(), VectorStoreSettings.defaultTopK)
-				.exceptionally(e -> List.of());
+		CompletableFuture<List<VectorDocument>> memFut = plan.useMemory()
+				? OllamaMod.VECTOR_STORE.queryMemories(retrievalQuery, context.conversationId().toString(), VectorStoreSettings.defaultTopK)
+						.exceptionally(e -> List.of())
+				: CompletableFuture.completedFuture(List.of());
 
 		if (!plan.useRetriever()) {
 			// Fast path: FACTS + history + memories, no tools, stream directly with fast model
@@ -178,7 +196,7 @@ public class AgenticRagVillagerBrain implements VillagerBrain {
 				this.prefetchedMemories = memories;
 				injectPrefetchedContext(messages, List.of(), memories);
 				System.out.println("[AgenticRAG] Fast path (chatModel, no tools, streaming, memories=" + memories.size() + ")");
-				streamFinalReply(messages, callbacks, OllamaSettings.chatModel);
+				streamFinalReply(messages, callbacks, OllamaSettings.chatModel, OllamaSettings.toolModel);
 			}).exceptionally(e -> {
 				callbacks.onError(e);
 				return null;
@@ -204,7 +222,7 @@ public class AgenticRagVillagerBrain implements VillagerBrain {
 				// Docs found — stream directly, no tools needed
 				System.out.println("[AgenticRAG] Retriever path: streaming (docs=" + docs.size()
 						+ ", memories=" + memories.size() + ")");
-				streamFinalReply(messages, callbacks, OllamaSettings.toolModel);
+				streamFinalReply(messages, callbacks, OllamaSettings.toolModel, OllamaSettings.chatModel);
 				return CompletableFuture.completedFuture((Void) null);
 			}
 
@@ -305,15 +323,21 @@ public class AgenticRagVillagerBrain implements VillagerBrain {
 			sb.append('\n');
 		}
 		if (sb.length() > 0) {
-			sb.append("IMPORTANT: Answer the player's question in plain natural language using FACTS and the context above.\n");
-			sb.append("Do NOT call tools if the answer is already in FACTS or the context above.\n");
-			sb.append("Only use search_knowledge or recall_memory if neither FACTS nor the context above answers the question.\n");
+			sb.append("IMPORTANT: Answer the player's question in plain natural language.\n");
+			sb.append("FACTS (live sensor readings) always override MEMORY for current world state such as weather, time, and location. MEMORY may be outdated.\n");
+			sb.append("Do NOT call tools if the answer is already in FACTS or MEMORY.\n");
+			sb.append("Only use search_knowledge or recall_memory if neither FACTS nor MEMORY answers the question.\n");
 		}
 		return sb.toString().trim();
 	}
 
 	// Sends a final streaming call without tools to generate the synthesized response.
+	// If the primary model fails and fallbackModel is non-null, retries with the fallback.
 	private void streamFinalReply(List<Map<String, Object>> messages, StreamCallbacks callbacks, String model) {
+		streamFinalReply(messages, callbacks, model, null);
+	}
+
+	private void streamFinalReply(List<Map<String, Object>> messages, StreamCallbacks callbacks, String model, String fallbackModel) {
 		Map<String, Object> requestBody = buildOllamaRequestBody(messages, true, false, model);
 		String json = gson.toJson(requestBody);
 
@@ -363,7 +387,13 @@ public class AgenticRagVillagerBrain implements VillagerBrain {
 
 				callbacks.onCompleted(fullReply.toString());
 			} catch (Exception e) {
-				callbacks.onError(e);
+				if (fallbackModel != null) {
+					OllamaMod.LOGGER.warn("[AgenticRAG] {} unavailable, falling back to {}: {}", model, fallbackModel, e.getMessage());
+					callbacks.onDelta("[System: " + model + " unavailable, switching to " + fallbackModel + "]\n");
+					streamFinalReply(messages, callbacks, fallbackModel, null);
+				} else {
+					callbacks.onError(e);
+				}
 			}
 		}, "AgenticRAG-Ollama-Streaming-Thread");
 
