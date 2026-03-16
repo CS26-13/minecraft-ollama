@@ -1,5 +1,6 @@
 package net.kevinthedang.ollamamod;
 
+import net.kevinthedang.ollamamod.chat.OllamaSettings;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.world.item.Item;
 import net.minecraftforge.common.ForgeConfigSpec;
@@ -30,6 +31,14 @@ public class Config {
             .comment("What you want the introduction message to be for the magic number")
             .define("magicNumberIntroduction", "The magic number is... ");
 
+    private static final ForgeConfigSpec.ConfigValue<String> CHAT_MODEL = BUILDER
+            .comment("The Ollama model used for low-effort conversations")
+            .define("chatModel", OllamaSettings.DEFAULT_CHAT_MODEL);
+
+    private static final ForgeConfigSpec.ConfigValue<String> TOOL_MODEL = BUILDER
+            .comment("The Ollama model used for higher-effort conversations")
+            .define("toolModel", OllamaSettings.DEFAULT_TOOL_MODEL);
+
     // a list of strings that are treated as resource locations for items
     private static final ForgeConfigSpec.ConfigValue<List<? extends String>> ITEM_STRINGS = BUILDER
             .comment("A list of items to log on common setup.")
@@ -52,9 +61,19 @@ public class Config {
         magicNumber = MAGIC_NUMBER.get();
         magicNumberIntroduction = MAGIC_NUMBER_INTRODUCTION.get();
 
+        // Sync persisted model selections into OllamaSettings
+        OllamaSettings.chatModel = CHAT_MODEL.get();
+        OllamaSettings.toolModel = TOOL_MODEL.get();
+
         // convert the list of strings into a set of items
         items = ITEM_STRINGS.get().stream()
                 .map(itemName -> ForgeRegistries.ITEMS.getValue(ResourceLocation.tryParse(itemName)))
                 .collect(Collectors.toSet());
+    }
+
+    // Persist current model selections from OllamaSettings to the config file.
+    public static void saveModelSelection() {
+        CHAT_MODEL.set(OllamaSettings.chatModel);
+        TOOL_MODEL.set(OllamaSettings.toolModel);
     }
 }

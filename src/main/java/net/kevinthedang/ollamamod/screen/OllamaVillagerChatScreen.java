@@ -11,19 +11,30 @@ import net.minecraftforge.api.distmarker.Dist;
 import net.minecraftforge.api.distmarker.OnlyIn;
 import org.jetbrains.annotations.NotNull;
 
+import net.kevinthedang.ollamamod.Config;
 import net.kevinthedang.ollamamod.OllamaMod;
 import net.kevinthedang.ollamamod.chat.ChatMessage;
 import net.kevinthedang.ollamamod.chat.ChatRole;
+import net.kevinthedang.ollamamod.chat.OllamaSettings;
 import net.kevinthedang.ollamamod.chat.VillagerBrain;
 import net.kevinthedang.ollamamod.chat.VillagerChatService;
+import net.kevinthedang.ollamamod.vectorstore.VectorStoreSettings;
 import org.lwjgl.glfw.GLFW;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.npc.Villager;
 import net.minecraft.world.phys.AABB;
 
+import java.net.URI;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
 import java.util.Comparator;
 
 import com.mojang.blaze3d.platform.InputConstants;
+import com.google.gson.JsonArray;
+import com.google.gson.JsonElement;
+import com.google.gson.JsonObject;
+import com.google.gson.JsonParser;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -45,6 +56,15 @@ public class OllamaVillagerChatScreen extends Screen {
     private long streamGeneration = 0;
     private final List<ChatMessageBubble> chatMessages = new ArrayList<>();
     private final StringBuilder streamingReplyBuffer = new StringBuilder();
+
+    // Model selection state
+    private enum ModelSelectionState { IDLE, PICKING_MODEL, PICKING_ROLE }
+    private ModelSelectionState modelSelectionState = ModelSelectionState.IDLE;
+    private List<String> availableModels = new ArrayList<>();
+    private int modelSelectionIndex = 0;
+    private String selectedModelName = null;
+    private static final List<String> ROLE_OPTIONS = List.of("Chat Model", "Tool Model", "Reset to Defaults");
+    private static final List<String> EMBEDDING_FAMILIES = List.of("nomic-bert", "bert");
 
     // GUI dimensions
     private static final int GUI_WIDTH = 280;
@@ -359,6 +379,57 @@ public class OllamaVillagerChatScreen extends Screen {
         return super.mouseScrolled(mouseX, mouseY, deltaX, deltaY);
     }
 
+    @Override
+    public boolean keyPressed(int keyCode, int scanCode, int modifiers) {
+        if (modelSelectionState != ModelSelectionState.IDLE) {
+            if (keyCode == GLFW.GLFW_KEY_UP) {
+                modelSelectionIndex--;
+                int size = modelSelectionState == ModelSelectionState.PICKING_MODEL
+                        ? availableModels.size() + 1 : ROLE_OPTIONS.size(); // +1 for Reset to Defaults
+                if (modelSelectionIndex < 0) modelSelectionIndex = size - 1;
+                updateSelectionDisplay();
+                return true;
+            } else if (keyCode == GLFW.GLFW_KEY_DOWN) {
+                modelSelectionIndex++;
+                int size = modelSelectionState == ModelSelectionState.PICKING_MODEL
+                        ? availableModels.size() + 1 : ROLE_OPTIONS.size(); // +1 for Reset to Defaults
+                if (modelSelectionIndex >= size) modelSelectionIndex = 0;
+                updateSelectionDisplay();
+                return true;
+            } else if (keyCode == GLFW.GLFW_KEY_ENTER || keyCode == GLFW.GLFW_KEY_KP_ENTER) {
+                if (modelSelectionState == ModelSelectionState.PICKING_MODEL) {
+                    if (modelSelectionIndex == availableModels.size()) {
+                        // "Reset to Defaults" selected from model list
+                        resetModelSelection();
+                        OllamaSettings.chatModel = OllamaSettings.DEFAULT_CHAT_MODEL;
+                        OllamaSettings.toolModel = OllamaSettings.DEFAULT_TOOL_MODEL;
+                        Config.saveModelSelection();
+                        appendSystemMessage(
+                                "Models reset to defaults:\n" +
+                                "  Chat Model: " + OllamaSettings.DEFAULT_CHAT_MODEL + "\n" +
+                                "  Tool Model: " + OllamaSettings.DEFAULT_TOOL_MODEL
+                        );
+                    } else {
+                        selectedModelName = availableModels.get(modelSelectionIndex);
+                        modelSelectionState = ModelSelectionState.PICKING_ROLE;
+                        modelSelectionIndex = 0;
+                        updateSelectionDisplay();
+                    }
+                } else if (modelSelectionState == ModelSelectionState.PICKING_ROLE) {
+                    applyModelSelection(modelSelectionIndex);
+                }
+                return true;
+            } else if (keyCode == GLFW.GLFW_KEY_ESCAPE) {
+                resetModelSelection();
+                appendSystemMessage("Model selection cancelled.");
+                return true;
+            }
+            // Consume all other keys during selection mode
+            return true;
+        }
+        return super.keyPressed(keyCode, scanCode, modifiers);
+    }
+
     private void renderChatHistory(GuiGraphics guiGraphics, int startX, int startY) {
         if (this.chatMessages.isEmpty()) {
             return;
@@ -373,7 +444,6 @@ public class OllamaVillagerChatScreen extends Screen {
         int bubbleMaxWidth = chatWidth - bubbleSpacing * 2;
 
         // Only render the last 12 messages
-        // TODO: Do we want a better way to handle large histories?
         List<ChatMessageBubble> messagesToRender;
         if (this.chatMessages.size() > 12) {
             messagesToRender = this.chatMessages.subList(
@@ -560,11 +630,18 @@ public class OllamaVillagerChatScreen extends Screen {
             appendSystemMessage(
                 "Available commands:\n" +
                 "/help - Show this help message\n" +
+                "/model - Change the chat or tool model from available Ollama models\n" +
                 "/clearmemory - Clear all memories and chat history for this villager\n" +
                 "/clearhistory - Clear only the in-memory chat history (keeps long-term memories)\n" +
                 "/who - Show current villager name, profession, and conversation ID\n" +
                 "/recall - Show top memories the villager has for this conversation"
             );
+        } else if (command.equals("/model")) {
+            if (modelSelectionState != ModelSelectionState.IDLE) {
+                appendSystemMessage("Model selection already in progress. Press Esc to cancel.");
+                return;
+            }
+            fetchAndShowModels();
         } else if (command.equals("/clearmemory")) {
             ensurePersonaResolved();
             OllamaMod.VECTOR_STORE.deleteMemoriesForVillager(conversationId.toString());
@@ -616,6 +693,172 @@ public class OllamaVillagerChatScreen extends Screen {
     private void appendSystemMessage(String text) {
         chatMessages.add(new ChatMessageBubble(Component.literal(text), ChatRole.SYSTEM));
         this.scrollOffset = Double.MAX_VALUE;
+    }
+
+    // Fetch available models from Ollama and enter model selection mode.
+    private void fetchAndShowModels() {
+        appendSystemMessage("Fetching available models...");
+        HttpClient client = HttpClient.newHttpClient();
+        HttpRequest request = HttpRequest.newBuilder()
+                .uri(URI.create(OllamaSettings.baseUrl + "/api/tags"))
+                .GET()
+                .build();
+
+        client.sendAsync(request, HttpResponse.BodyHandlers.ofString())
+                .thenAccept(response -> {
+                    List<String> models = new ArrayList<>();
+                    try {
+                        JsonObject json = JsonParser.parseString(response.body()).getAsJsonObject();
+                        JsonArray modelsArray = json.getAsJsonArray("models");
+                        String embeddingModelName = VectorStoreSettings.embeddingModel;
+
+                        for (JsonElement element : modelsArray) {
+                            JsonObject model = element.getAsJsonObject();
+                            String name = model.get("name").getAsString();
+
+                            // Filter out embedding models
+                            if (name.contains(embeddingModelName)) continue;
+
+                            boolean isEmbeddingFamily = false;
+                            if (model.has("details")) {
+                                JsonObject details = model.getAsJsonObject("details");
+                                if (details.has("family")) {
+                                    String family = details.get("family").getAsString().toLowerCase();
+                                    for (String embFamily : EMBEDDING_FAMILIES) {
+                                        if (family.equals(embFamily)) {
+                                            isEmbeddingFamily = true;
+                                            break;
+                                        }
+                                    }
+                                }
+                            }
+                            if (!isEmbeddingFamily) {
+                                models.add(name);
+                            }
+                        }
+                    } catch (Exception e) {
+                        net.minecraft.client.Minecraft.getInstance().execute(() -> {
+                            // Remove "Fetching..." message
+                            if (!chatMessages.isEmpty()) chatMessages.remove(chatMessages.size() - 1);
+                            appendSystemMessage("Error parsing model list: " + e.getMessage());
+                        });
+                        return;
+                    }
+
+                    final List<String> finalModels = models;
+                    net.minecraft.client.Minecraft.getInstance().execute(() -> {
+                        // Remove "Fetching..." message
+                        if (!chatMessages.isEmpty()) chatMessages.remove(chatMessages.size() - 1);
+
+                        if (finalModels.isEmpty()) {
+                            appendSystemMessage("No language models found.");
+                            return;
+                        }
+
+                        availableModels = finalModels;
+                        modelSelectionIndex = 0;
+                        modelSelectionState = ModelSelectionState.PICKING_MODEL;
+                        chatInput.setEditable(false);
+                        updateSelectionDisplay();
+                    });
+                })
+                .exceptionally(err -> {
+                    net.minecraft.client.Minecraft.getInstance().execute(() -> {
+                        if (!chatMessages.isEmpty()) chatMessages.remove(chatMessages.size() - 1);
+                        appendSystemMessage("Could not reach Ollama: " + err.getMessage());
+                    });
+                    return null;
+                });
+    }
+
+    // Build and display the current selection list.
+    private void updateSelectionDisplay() {
+        // Remove the last system message (previous selection display) if we're updating
+        if (!chatMessages.isEmpty() && chatMessages.get(chatMessages.size() - 1).role() == ChatRole.SYSTEM) {
+            chatMessages.remove(chatMessages.size() - 1);
+        }
+
+        StringBuilder sb = new StringBuilder();
+
+        if (modelSelectionState == ModelSelectionState.PICKING_MODEL) {
+            sb.append("! Proceed with caution: the default models\nare tested for best performance.\n\n");
+            sb.append("Available models:\n");
+            for (int i = 0; i < availableModels.size(); i++) {
+                String marker = (i == modelSelectionIndex) ? "> " : "  ";
+                sb.append(marker).append(i + 1).append(". ").append(availableModels.get(i));
+                if (availableModels.get(i).equals(OllamaSettings.chatModel)) {
+                    sb.append(" (current chatModel)");
+                } else if (availableModels.get(i).equals(OllamaSettings.toolModel)) {
+                    sb.append(" (current toolModel)");
+                }
+                sb.append("\n");
+            }
+            // "Reset to Defaults" option at the end of the model list
+            int resetIdx = availableModels.size();
+            String resetMarker = (resetIdx == modelSelectionIndex) ? "> " : "  ";
+            sb.append(resetMarker).append(resetIdx + 1).append(". Reset to Defaults\n");
+            sb.append("\n[Up/Down] Navigate  [Enter] Select  [Esc] Cancel");
+        } else if (modelSelectionState == ModelSelectionState.PICKING_ROLE) {
+            sb.append("Selected: ").append(selectedModelName).append("\nSet as:\n");
+            for (int i = 0; i < ROLE_OPTIONS.size(); i++) {
+                String marker = (i == modelSelectionIndex) ? "> " : "  ";
+                sb.append(marker).append(i + 1).append(". ").append(ROLE_OPTIONS.get(i));
+                if (i == 0) {
+                    sb.append(" (currently: ").append(OllamaSettings.chatModel).append(")");
+                } else if (i == 1) {
+                    sb.append(" (currently: ").append(OllamaSettings.toolModel).append(")");
+                }
+                sb.append("\n");
+            }
+            sb.append("\n[Up/Down] Navigate  [Enter] Select  [Esc] Cancel");
+        }
+
+        appendSystemMessage(sb.toString().trim());
+    }
+
+    // Apply the user's model role selection.
+    private void applyModelSelection(int roleIndex) {
+        String previousChat = OllamaSettings.chatModel;
+        String previousTool = OllamaSettings.toolModel;
+        String chosenModel = selectedModelName;
+
+        resetModelSelection();
+
+        if (roleIndex == 0) {
+            OllamaSettings.chatModel = chosenModel;
+            Config.saveModelSelection();
+            appendSystemMessage(
+                    "Chat Model updated: " + previousChat + " -> " + chosenModel + "\n" +
+                    "Note: The default model (" + OllamaSettings.DEFAULT_CHAT_MODEL + ") has been tested and recommended for best stability. Using other models may lead to worse performance or unexpected behavior."
+            );
+        } else if (roleIndex == 1) {
+            OllamaSettings.toolModel = chosenModel;
+            Config.saveModelSelection();
+            appendSystemMessage(
+                    "Tool Model updated: " + previousTool + " -> " + chosenModel + "\n" +
+                    "Note: The default model (" + OllamaSettings.DEFAULT_TOOL_MODEL + ") has been tested and recommended for best stability. Using other models may lead to worse performance or unexpected behavior."
+            );
+        } else if (roleIndex == 2) {
+            OllamaSettings.chatModel = OllamaSettings.DEFAULT_CHAT_MODEL;
+            OllamaSettings.toolModel = OllamaSettings.DEFAULT_TOOL_MODEL;
+            Config.saveModelSelection();
+            appendSystemMessage(
+                    "Models reset to defaults:\n" +
+                    "  Chat Model: " + OllamaSettings.DEFAULT_CHAT_MODEL + "\n" +
+                    "  Tool Model: " + OllamaSettings.DEFAULT_TOOL_MODEL
+            );
+        }
+    }
+
+    // Reset model selection state back to IDLE and re-enable input.
+    private void resetModelSelection() {
+        modelSelectionState = ModelSelectionState.IDLE;
+        modelSelectionIndex = 0;
+        selectedModelName = null;
+        availableModels.clear();
+        if (chatInput != null) {
+            chatInput.setEditable(true);
+        }
     }
 
     private void ensurePersonaResolved() {
