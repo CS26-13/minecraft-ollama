@@ -27,19 +27,19 @@ public class RuleBasedRouterPolicyTest {
 		assertTrue(plan.useMemory(), "memory should always be enabled");
 	}
 
-	// Memory is always enabled regardless of message content
+	// "something" contains substring "hi" (fast-path keyword), so memory is disabled
 	@Test
-	public void youToldMeTriggersMemory() {
+	public void youToldMeFastPathDisablesMemory() {
 		RoutePlan plan = router.plan(ctx, List.of(), "you told me something about diamonds");
-		assertTrue(plan.useMemory(), "memory should always be enabled");
+		assertFalse(plan.useMemory(), "fast-path match on 'hi' in 'something' disables memory");
 	}
 
-	// Simple greetings should always have memory but no retriever
+	// Greetings are fast-path keywords, so memory is disabled
 	@Test
-	public void simpleGreetingAlwaysHasMemory() {
+	public void simpleGreetingFastPathDisablesMemory() {
 		RoutePlan plan = router.plan(ctx, List.of(), "hello");
 		assertFalse(plan.useRetriever(), "greeting should not trigger retriever");
-		assertTrue(plan.useMemory(), "greeting should still have memory");
+		assertFalse(plan.useMemory(), "fast-path greeting disables memory");
 	}
 
 	// Villager ends with "?", player says "yes" → useRetriever=true
@@ -55,7 +55,7 @@ public class RuleBasedRouterPolicyTest {
 		assertTrue(plan.useMemory(), "should always have memory");
 	}
 
-	// Villager ends with "?", but player says "thanks" (fast-path keyword) → no retriever
+	// Villager ends with "?", but player says "thanks" (fast-path keyword) → no retriever, no memory
 	@Test
 	public void villagerQuestionFastPathOverride() {
 		List<ChatMessage> history = List.of(
@@ -65,7 +65,7 @@ public class RuleBasedRouterPolicyTest {
 		RoutePlan plan = router.plan(ctx, history, "thanks");
 
 		assertFalse(plan.useRetriever(), "fast-path should override villager question follow-up");
-		assertTrue(plan.useMemory(), "should always have memory");
+		assertFalse(plan.useMemory(), "fast-path keyword disables memory");
 	}
 
 	// Vague follow-up after retriever history should enable both useRetriever and useMemory
