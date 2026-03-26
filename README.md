@@ -39,17 +39,24 @@ It would be awesome to implement [Ollama](https://ollama.com/) into Minecraft as
 
 2. **Pull the required Ollama models**
    ```bash
-   ollama pull llama3.2:latest
-   ollama pull qwen3:8b
+   ollama pull granite4:latest
+   ollama pull minimax-m2.5:cloud
    ollama pull nomic-embed-text:latest
    ```
 
-3. **Serve Ollama** (if not already running)
+3. **Set up Ollama service**
+  Open the Ollama application and navigate to the `Settings` section. 
+    * Make sure to enable "Expose API to the network" to allow the mod to communicate with the Ollama server. 
+    * Depend on your computer performance, adjust the context length as needed. We recommend 16,000 tokens or more for better conversations, but you can start with a smaller context length if you encounter performance issues.
+    * Log in to your Ollama account within the application to access cloud models like `minimax-m2.5:cloud`. 
    ```bash
    ollama serve
+   # Either keep the Ollama application running or run the above command in the terminal to start the server. The mod will communicate with this server to get responses from the models.
+   # If you run the above command, leave the terminal open to keep the server running. You can stop the server later by pressing Ctrl+C in that terminal. Open another terminal for the next steps.
    ```
 
-4. **Extracting and Organizing Minecraft Knowledge Base** (Only required to run once unless there is an update. Run at root of the project)
+
+4. **Extracting and Organizing Minecraft Knowledge Base** (Only required to run once unless there is an update. Run at project root)
 
    ```bash
    npm install minecraft-data

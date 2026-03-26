@@ -324,9 +324,9 @@ public class AgenticRagVillagerBrain implements VillagerBrain {
 		}
 		if (sb.length() > 0) {
 			sb.append("IMPORTANT: Answer the player's question in plain natural language.\n");
-			sb.append("FACTS (live sensor readings) always override MEMORY for current world state such as weather, time, and location. MEMORY may be outdated.\n");
-			sb.append("Do NOT call tools if the answer is already in FACTS or MEMORY.\n");
-			sb.append("Only use search_knowledge or recall_memory if neither FACTS nor MEMORY answers the question.\n");
+			sb.append("WORLD INFO always overrides MEMORY for current world state such as weather, time, and location. MEMORY may be outdated.\n");
+			sb.append("Do NOT call tools if the answer is already in WORLD INFO or MEMORY.\n");
+			sb.append("Only use search_knowledge or recall_memory if neither WORLD INFO nor MEMORY answers the question.\n");
 		}
 		return sb.toString().trim();
 	}
@@ -438,6 +438,9 @@ public class AgenticRagVillagerBrain implements VillagerBrain {
 		if (includeTools) {
 			body.put("tools", OllamaToolDefinition.allTools());
 		}
+		Map<String, Object> options = new HashMap<>();
+		options.put("num_predict", 200);
+		body.put("options", options);
 		return body;
 	}
 

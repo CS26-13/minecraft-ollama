@@ -54,6 +54,8 @@ public class OllamaVillagerChatScreen extends Screen {
     private int thinkingBubbleIndex = -1;
     private boolean isStreaming = false;
     private long streamGeneration = 0;
+    private long lastMessageSentTime = 0;
+    private static final long MESSAGE_COOLDOWN_MS = 3000;
     private final List<ChatMessageBubble> chatMessages = new ArrayList<>();
     private final StringBuilder streamingReplyBuffer = new StringBuilder();
 
@@ -193,12 +195,18 @@ public class OllamaVillagerChatScreen extends Screen {
             return;
         }
 
+        long now = System.currentTimeMillis();
+        if (now - lastMessageSentTime < MESSAGE_COOLDOWN_MS) {
+            return;
+        }
+
         String text = this.chatInput.getValue().trim();
         if (text.isEmpty()) {
             return;
         }
 
         this.chatInput.setValue("");
+        lastMessageSentTime = System.currentTimeMillis();
 
         // Intercept chat commands before sending to LLM
         if (text.startsWith("/")) {
@@ -440,7 +448,7 @@ public class OllamaVillagerChatScreen extends Screen {
         int chatWidth = GUI_WIDTH - 10;
         int chatHeight = GUI_HEIGHT - 53;
         int bubblePadding = 6;
-        int bubbleSpacing = 4;
+        int bubbleSpacing = 12;
         int bubbleMaxWidth = chatWidth - bubbleSpacing * 2;
 
         // Only render the last 12 messages
@@ -634,7 +642,7 @@ public class OllamaVillagerChatScreen extends Screen {
                 "/clearmemory - Clear all memories and chat history for this villager\n" +
                 "/clearhistory - Clear only the in-memory chat history (keeps long-term memories)\n" +
                 "/who - Show current villager name, profession, and conversation ID\n" +
-                "/recall - Show top memories the villager has for this conversation"
+                "/recall - Show recent memories the villager has for this conversation"
             );
         } else if (command.equals("/model")) {
             if (modelSelectionState != ModelSelectionState.IDLE) {
@@ -674,7 +682,7 @@ public class OllamaVillagerChatScreen extends Screen {
                     if (err != null || docs == null || docs.isEmpty()) {
                         appendSystemMessage("No memories found for this villager.");
                     } else {
-                        StringBuilder sb = new StringBuilder("Top memories for this villager:\n");
+                        StringBuilder sb = new StringBuilder("Recent memories for this villager:\n");
                         for (int i = 0; i < docs.size(); i++) {
                             String content = docs.get(i).content();
                             if (content == null) continue;
