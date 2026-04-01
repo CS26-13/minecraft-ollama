@@ -122,18 +122,47 @@ public class ForgeWorldContextTool implements WorldContextTool {
 		BlockPos anchorPos = (anchorVillager != null) ? anchorVillager.blockPosition() : player.blockPosition();
 
 		// Tiered block scanning — always runs, no keyword gate
-		facts.addAll(queryTier1Blocks(level, anchorPos));
-		addCapped(facts, queryTier2Blocks(level, anchorPos));
-		addCapped(facts, queryTier3Blocks(level, anchorPos));
+		BlockScanResult tier1 = scanTier1(level, anchorPos);
+		BlockScanResult tier2 = scanTier2(level, anchorPos);
+		BlockScanResult tier3 = scanTier3(level, anchorPos);
+
+		// Indoor/outdoor detection
+		String setting = detectSetting(level, anchorPos);
+
+		// Convert tier-1 blocks to BlockInfo records for SceneDescriptionBuilder
+		List<SceneDescriptionBuilder.BlockInfo> immediateBlocks = toBlockInfoList(tier1, anchorPos);
+
+		// Surroundings fact
+		facts.add(fact(SceneDescriptionBuilder.buildSurroundings(setting, immediateBlocks),
+				"forge.scene.surroundings", 0.95, 3_000));
+
+		// Notable/rare blocks fact
+		List<SceneDescriptionBuilder.BlockInfo> notableBlocks = new ArrayList<>();
+		notableBlocks.addAll(toBlockInfoList(tier2, anchorPos));
+		notableBlocks.addAll(toBlockInfoList(tier3, anchorPos));
+		String notableDesc = SceneDescriptionBuilder.buildNotableBlocks(notableBlocks);
+		if (!notableDesc.isEmpty()) {
+			facts.add(fact("Nearby blocks of interest:" + notableDesc,
+					"forge.scene.notable", 0.9, 5_000));
+		}
+
+		// Always collect lightweight entity info for scene description
+		List<SceneDescriptionBuilder.EntityInfo> entityInfos = collectEntityInfos(level, anchorPos, ENTITY_RADIUS);
+		String entityDesc = SceneDescriptionBuilder.buildEntities(entityInfos);
+		if (!entityDesc.isEmpty()) {
+			facts.add(fact("People and creatures nearby:" + entityDesc,
+					"forge.scene.entities", 0.9, 3_000));
+		}
 
 		if (anchorVillager != null) {
 			facts.add(fact("Anchor villager position: x=" + anchorPos.getX() + ", y=" + anchorPos.getY() + ", z=" + anchorPos.getZ(),
 					"forge.villager.anchor", 0.95, nowTtl));
 		}
 
-		// Agentic router
+		// Agentic router — structures still keyword-gated
 		String msg = playerMessage == null ? "" : playerMessage.toLowerCase(Locale.ROOT);
 
+		// Detailed mob breakdown still keyword-gated
 		if (wantsMobs(msg)) {
 			addCapped(facts, queryNearbyMobs(level, player, ENTITY_RADIUS));
 		}
@@ -151,10 +180,11 @@ public class ForgeWorldContextTool implements WorldContextTool {
 		return new WorldFactBundle(trim(facts));
 	}
 
-	// Tier 1: ALL non-air blocks within a small cube. Reports top block types by count.
-	// For rare/notable blocks, also tracks nearest position for directional info.
-	private static List<WorldFact> queryTier1Blocks(Level level, BlockPos anchor) {
-		List<WorldFact> out = new ArrayList<>();
+	// Raw scan result: block counts + nearest position per block type
+	private record BlockScanResult(Map<String, Integer> counts, Map<String, BlockPos> nearest) {}
+
+	// Tier 1: ALL non-air blocks within a small cube.
+	private static BlockScanResult scanTier1(Level level, BlockPos anchor) {
 		Map<String, Integer> counts = new HashMap<>();
 		Map<String, BlockPos> nearest = new HashMap<>();
 		BlockPos.MutableBlockPos mpos = new BlockPos.MutableBlockPos();
@@ -174,26 +204,19 @@ public class ForgeWorldContextTool implements WorldContextTool {
 					if (st.isAir()) continue;
 					String id = BuiltInRegistries.BLOCK.getKey(st.getBlock()).toString();
 					counts.merge(id, 1, Integer::sum);
-					// Track nearest position for rare/notable blocks only
-					if (isTier2Notable(id) || TIER3_RARE.contains(id)) {
-						BlockPos prev = nearest.get(id);
-						if (prev == null || mpos.distSqr(anchor) < prev.distSqr(anchor)) {
-							nearest.put(id, new BlockPos(mpos));
-						}
+					BlockPos prev = nearest.get(id);
+					if (prev == null || mpos.distSqr(anchor) < prev.distSqr(anchor)) {
+						nearest.put(id, new BlockPos(mpos));
 					}
 				}
 			}
 		}
 
-		out.add(fact("Immediate blocks (" + TIER1_RADIUS + "-block radius): " + topNWithDirection(counts, nearest, anchor, 6),
-				"forge.blocks.tier1", 0.9, 3_000));
-
-		return out;
+		return new BlockScanResult(counts, nearest);
 	}
 
 	// Tier 2: Notable blocks (ores, hazards, functional) within a medium radius.
-	private static List<WorldFact> queryTier2Blocks(Level level, BlockPos anchor) {
-		List<WorldFact> out = new ArrayList<>();
+	private static BlockScanResult scanTier2(Level level, BlockPos anchor) {
 		Map<String, Integer> counts = new HashMap<>();
 		Map<String, BlockPos> nearest = new HashMap<>();
 		Set<Long> loadedChunks = new HashSet<>();
@@ -225,17 +248,11 @@ public class ForgeWorldContextTool implements WorldContextTool {
 			}
 		}
 
-		if (!counts.isEmpty()) {
-			out.add(fact("Notable blocks within " + TIER2_RADIUS + " blocks: " + topNWithDirection(counts, nearest, anchor, 5),
-					"forge.blocks.tier2", 0.85, 5_000));
-		}
-
-		return out;
+		return new BlockScanResult(counts, nearest);
 	}
 
 	// Tier 3: Rare/valuable blocks within a large radius, Y-band clamped.
-	private static List<WorldFact> queryTier3Blocks(Level level, BlockPos anchor) {
-		List<WorldFact> out = new ArrayList<>();
+	private static BlockScanResult scanTier3(Level level, BlockPos anchor) {
 		Map<String, Integer> counts = new HashMap<>();
 		Map<String, BlockPos> nearest = new HashMap<>();
 		Set<Long> loadedChunks = new HashSet<>();
@@ -267,11 +284,61 @@ public class ForgeWorldContextTool implements WorldContextTool {
 			}
 		}
 
-		if (!counts.isEmpty()) {
-			out.add(fact("Rare blocks within " + TIER3_RADIUS + " blocks: " + topNWithDirection(counts, nearest, anchor, 8),
-					"forge.blocks.tier3", 0.9, 8_000));
-		}
+		return new BlockScanResult(counts, nearest);
+	}
 
+	// Detects whether the anchor position is outdoors, indoors, or underground.
+	private static String detectSetting(Level level, BlockPos anchor) {
+		try {
+			boolean sky = level.canSeeSky(anchor.above());
+			if (sky) return "outdoors";
+			int lightLevel = level.getMaxLocalRawBrightness(anchor);
+			if (lightLevel < 4) return "underground in darkness";
+			return "indoors";
+		} catch (Throwable t) {
+			return "outdoors";
+		}
+	}
+
+	// Converts a BlockScanResult into a list of BlockInfo records for SceneDescriptionBuilder.
+	private static List<SceneDescriptionBuilder.BlockInfo> toBlockInfoList(BlockScanResult scan, BlockPos anchor) {
+		List<SceneDescriptionBuilder.BlockInfo> out = new ArrayList<>();
+		for (var entry : scan.counts().entrySet()) {
+			String blockId = entry.getKey();
+			int count = entry.getValue();
+			BlockPos nearestPos = scan.nearest().get(blockId);
+			int dx = 0, dy = 0, dz = 0;
+			if (nearestPos != null) {
+				dx = nearestPos.getX() - anchor.getX();
+				dy = nearestPos.getY() - anchor.getY();
+				dz = nearestPos.getZ() - anchor.getZ();
+			}
+			out.add(new SceneDescriptionBuilder.BlockInfo(blockId, count, dx, dy, dz));
+		}
+		return out;
+	}
+
+	// Collects lightweight entity info for the scene description (always runs).
+	private static List<SceneDescriptionBuilder.EntityInfo> collectEntityInfos(Level level, BlockPos anchor, int radius) {
+		List<SceneDescriptionBuilder.EntityInfo> out = new ArrayList<>();
+		try {
+			AABB box = new AABB(anchor).inflate(radius);
+			List<Entity> entities = level.getEntities(null, box);
+			for (Entity e : entities) {
+				if (e == null) continue;
+				String typeId = safeId(e);
+				String profession = null;
+				if (e instanceof Villager v) {
+					profession = villagerProfessionId(v);
+				}
+				int dx = e.blockPosition().getX() - anchor.getX();
+				int dy = e.blockPosition().getY() - anchor.getY();
+				int dz = e.blockPosition().getZ() - anchor.getZ();
+				out.add(new SceneDescriptionBuilder.EntityInfo(typeId, profession, dx, dy, dz));
+			}
+		} catch (Throwable t) {
+			// Graceful fallback
+		}
 		return out;
 	}
 

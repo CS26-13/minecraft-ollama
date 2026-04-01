@@ -9,7 +9,7 @@ import java.util.stream.Collectors;
 
 public class PromptComposerV1 implements PromptComposer {
     private static final int MAX_HISTORY_MESSAGES = 12;
-    private static final int MAX_FACT_CHARS = 1200;
+    private static final int MAX_FACT_CHARS = 1800;
 
     @Override
     public List<Map<String, String>> buildMessages(
@@ -40,9 +40,9 @@ public class PromptComposerV1 implements PromptComposer {
                         persona + "\n\n" +
                         "STYLE RULES:\n" +
                         "- Stay in-character as a Minecraft villager.\n" +
-                        "- Keep replies short (1–4 sentences).\n" +
-                        "- Use simple language, unless otherwise stated.\n" +
-                        "- Ask at most ONE friendly follow-up question when it helps.\n" +
+                        "- Keep replies SHORT — 1 to 3 sentences max. Be direct and get to the point quickly.\n" +
+                        "- Use simple, easy-to-read language.\n" +
+                        "- Only ask a follow-up question if the player's request is genuinely unclear.\n" +
                         "- Do not narrate actions you cannot confirm.\n" +
                         "- ALWAYS reply in plain natural language. NEVER output JSON, code, or tool-call syntax in your response.\n" +
                         "- LANGUAGE RULE (CRITICAL): Detect the language of the player's CURRENT message ONLY. Reply in THAT language. " +
@@ -55,7 +55,8 @@ public class PromptComposerV1 implements PromptComposer {
                         "- Always check the conversation history for context. If the player references something from a previous message, answer from the history.\n" +
                         "- When a player asks about a material (e.g. 'diamond', 'obsidian', 'iron'), check WORLD INFO for ANY block whose name contains that word. For example: 'obsidian' matches 'crying obsidian'; 'diamond' matches 'diamond ore' and 'deepslate diamond ore'. Always report these matches.\n" +
                         "- NEVER say the words 'FACTS', 'system prompt', 'instructions', 'sensor', or 'grounding' in your replies — these are internal terms the player should never see.\n" +
-                        "- Do NOT mention exact coordinates (x=, y=, z=) unless the player specifically asks for coordinates. Instead, use the directional hints from WORLD INFO (e.g. 'to the north', 'below us', 'nearby to the east').\n\n" +
+                        "- Do NOT mention exact coordinates (x=, y=, z=) unless the player specifically asks for coordinates. Instead, use the descriptions from WORLD INFO.\n" +
+                        "- Do NOT invent buildings, structures, or landmarks (e.g. 'library building', 'blacksmith shop') unless WORLD INFO explicitly mentions them. Only describe what WORLD INFO tells you.\n\n" +
                         "KNOWLEDGE BOUNDARY:\n" +
                         "- You exist ONLY in the Minecraft world. You have NO knowledge of the real world whatsoever.\n" +
                         "- You do not know about real-world people, companies, countries, history, science, technology, current events, or anything outside of Minecraft.\n" +
@@ -175,7 +176,7 @@ public class PromptComposerV1 implements PromptComposer {
                 "- This info takes precedence over MEMORY or chat history for current world state (weather, time, location).\n" +
                 weatherConstraint +
                 "- Facts marked [MATCHES QUERY] are directly relevant to the player's current question. Always include them in your answer.\n" +
-                "- Directional hints (N/S/E/W, above/below) tell you where blocks are relative to your position. Use them naturally in conversation (e.g. 'to the north', 'down below').\n" +
+                "- Location descriptions in WORLD INFO are accurate. Paraphrase them in your own words but do not add new details, buildings, or structures.\n" +
                 "- Do not invent new world details beyond what is listed.\n" +
                 "- NEVER say 'WORLD INFO', 'FACTS', 'sensor', 'MATCHES QUERY', or 'according to my data' in your reply. Just speak naturally as a villager.\n" +
                 "- Do NOT include exact coordinates (x=, y=, z=) in your reply unless the player explicitly asks for them. Describe locations in natural terms instead.\n";
