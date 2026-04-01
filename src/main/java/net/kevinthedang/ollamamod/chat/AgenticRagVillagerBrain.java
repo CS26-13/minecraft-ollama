@@ -438,9 +438,8 @@ public class AgenticRagVillagerBrain implements VillagerBrain {
 		if (includeTools) {
 			body.put("tools", OllamaToolDefinition.allTools());
 		}
-		Map<String, Object> options = new HashMap<>();
-		options.put("num_predict", 200);
-		body.put("options", options);
+		// No num_predict cap — let the model use its default token limit.
+		// Some models use reasoning tokens internally, so a low cap truncates output.
 		return body;
 	}
 

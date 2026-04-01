@@ -25,7 +25,7 @@ import java.util.stream.Collectors;
 
 public class ForgeWorldContextTool implements WorldContextTool {
 	private static final int ENTITY_RADIUS = 24;
-	private static final int MAX_FACTS = 10;
+	private static final int MAX_FACTS = 15;
 
 	// Tiered block scanning radii
 	private static final int TIER1_RADIUS = 2;      // 5x5x5 = 125 blocks — report ALL non-air
@@ -152,9 +152,11 @@ public class ForgeWorldContextTool implements WorldContextTool {
 	}
 
 	// Tier 1: ALL non-air blocks within a small cube. Reports top block types by count.
+	// For rare/notable blocks, also tracks nearest position for directional info.
 	private static List<WorldFact> queryTier1Blocks(Level level, BlockPos anchor) {
 		List<WorldFact> out = new ArrayList<>();
 		Map<String, Integer> counts = new HashMap<>();
+		Map<String, BlockPos> nearest = new HashMap<>();
 		BlockPos.MutableBlockPos mpos = new BlockPos.MutableBlockPos();
 
 		int minX = anchor.getX() - TIER1_RADIUS;
@@ -172,11 +174,18 @@ public class ForgeWorldContextTool implements WorldContextTool {
 					if (st.isAir()) continue;
 					String id = BuiltInRegistries.BLOCK.getKey(st.getBlock()).toString();
 					counts.merge(id, 1, Integer::sum);
+					// Track nearest position for rare/notable blocks only
+					if (isTier2Notable(id) || TIER3_RARE.contains(id)) {
+						BlockPos prev = nearest.get(id);
+						if (prev == null || mpos.distSqr(anchor) < prev.distSqr(anchor)) {
+							nearest.put(id, new BlockPos(mpos));
+						}
+					}
 				}
 			}
 		}
 
-		out.add(fact("Immediate blocks (" + TIER1_RADIUS + "-block radius): " + topNShort(counts, 6),
+		out.add(fact("Immediate blocks (" + TIER1_RADIUS + "-block radius): " + topNWithDirection(counts, nearest, anchor, 6),
 				"forge.blocks.tier1", 0.9, 3_000));
 
 		return out;
@@ -186,6 +195,7 @@ public class ForgeWorldContextTool implements WorldContextTool {
 	private static List<WorldFact> queryTier2Blocks(Level level, BlockPos anchor) {
 		List<WorldFact> out = new ArrayList<>();
 		Map<String, Integer> counts = new HashMap<>();
+		Map<String, BlockPos> nearest = new HashMap<>();
 		Set<Long> loadedChunks = new HashSet<>();
 		BlockPos.MutableBlockPos mpos = new BlockPos.MutableBlockPos();
 
@@ -206,13 +216,17 @@ public class ForgeWorldContextTool implements WorldContextTool {
 					String id = BuiltInRegistries.BLOCK.getKey(st.getBlock()).toString();
 					if (isTier2Notable(id)) {
 						counts.merge(id, 1, Integer::sum);
+						BlockPos prev = nearest.get(id);
+						if (prev == null || mpos.distSqr(anchor) < prev.distSqr(anchor)) {
+							nearest.put(id, new BlockPos(mpos));
+						}
 					}
 				}
 			}
 		}
 
 		if (!counts.isEmpty()) {
-			out.add(fact("Notable blocks within " + TIER2_RADIUS + " blocks: " + topNShort(counts, 5),
+			out.add(fact("Notable blocks within " + TIER2_RADIUS + " blocks: " + topNWithDirection(counts, nearest, anchor, 5),
 					"forge.blocks.tier2", 0.85, 5_000));
 		}
 
@@ -223,6 +237,7 @@ public class ForgeWorldContextTool implements WorldContextTool {
 	private static List<WorldFact> queryTier3Blocks(Level level, BlockPos anchor) {
 		List<WorldFact> out = new ArrayList<>();
 		Map<String, Integer> counts = new HashMap<>();
+		Map<String, BlockPos> nearest = new HashMap<>();
 		Set<Long> loadedChunks = new HashSet<>();
 		BlockPos.MutableBlockPos mpos = new BlockPos.MutableBlockPos();
 
@@ -243,13 +258,17 @@ public class ForgeWorldContextTool implements WorldContextTool {
 					String id = BuiltInRegistries.BLOCK.getKey(st.getBlock()).toString();
 					if (TIER3_RARE.contains(id)) {
 						counts.merge(id, 1, Integer::sum);
+						BlockPos prev = nearest.get(id);
+						if (prev == null || mpos.distSqr(anchor) < prev.distSqr(anchor)) {
+							nearest.put(id, new BlockPos(mpos));
+						}
 					}
 				}
 			}
 		}
 
 		if (!counts.isEmpty()) {
-			out.add(fact("Rare blocks within " + TIER3_RADIUS + " blocks: " + topNShort(counts, 8),
+			out.add(fact("Rare blocks within " + TIER3_RADIUS + " blocks: " + topNWithDirection(counts, nearest, anchor, 8),
 					"forge.blocks.tier3", 0.9, 8_000));
 		}
 
@@ -274,6 +293,56 @@ public class ForgeWorldContextTool implements WorldContextTool {
 		return blockId.contains("bed") || blockId.contains("shulker_box");
 	}
 
+	// Computes a human-readable cardinal direction + distance from anchor to target.
+	// Returns e.g. "~8 SE, below" or "~3 N" or "~1 nearby, above".
+	private static String cardinalDirection(BlockPos anchor, BlockPos target) {
+		int dx = target.getX() - anchor.getX();
+		int dz = target.getZ() - anchor.getZ();
+		int dy = target.getY() - anchor.getY();
+
+		// Horizontal direction (Minecraft: -Z = North, +Z = South, +X = East, -X = West)
+		String ns = "";
+		String ew = "";
+		if (dz < -2) ns = "N";
+		else if (dz > 2) ns = "S";
+		if (dx > 2) ew = "E";
+		else if (dx < -2) ew = "W";
+
+		String horiz = ns + ew;
+		if (horiz.isEmpty()) horiz = "nearby";
+
+		// Vertical
+		String vert = "";
+		if (dy > 2) vert = "above";
+		else if (dy < -2) vert = "below";
+
+		int dist = (int) Math.round(Math.sqrt(dx * dx + dy * dy + dz * dz));
+
+		StringBuilder sb = new StringBuilder();
+		sb.append("~").append(dist).append(" ").append(horiz);
+		if (!vert.isEmpty()) sb.append(", ").append(vert);
+		return sb.toString();
+	}
+
+	// Formats top N block counts with direction info for blocks that have nearest positions tracked.
+	private static String topNWithDirection(Map<String, Integer> counts,
+											Map<String, BlockPos> nearest,
+											BlockPos anchor, int n) {
+		if (counts == null || counts.isEmpty()) return "(none)";
+		return counts.entrySet().stream()
+				.sorted((a, b) -> Integer.compare(b.getValue(), a.getValue()))
+				.limit(n)
+				.map(e -> {
+					String base = prettyBlockName(e.getKey()) + "=" + e.getValue();
+					BlockPos np = nearest.get(e.getKey());
+					if (np != null) {
+						base += " (nearest: " + cardinalDirection(anchor, np) + ")";
+					}
+					return base;
+				})
+				.collect(Collectors.joining(", "));
+	}
+
 	// Formats top N block counts with human-friendly names for readability.
 	private static String topNShort(Map<String, Integer> counts, int n) {
 		if (counts == null || counts.isEmpty()) return "(none)";
@@ -294,6 +363,7 @@ public class ForgeWorldContextTool implements WorldContextTool {
 	// Query functions
 	private static List<WorldFact> queryNearbyMobs(Level level, Entity player, int radius) {
 		List<WorldFact> out = new ArrayList<>();
+		BlockPos playerPos = player.blockPosition();
 		AABB box = player.getBoundingBox().inflate(radius);
 		List<Entity> entities = level.getEntities(player, box);
 
@@ -301,8 +371,7 @@ public class ForgeWorldContextTool implements WorldContextTool {
 		int mobs = 0, hostiles = 0, villagers = 0;
 
 		Map<String, Integer> mobTop = new HashMap<>();
-		Map<String, Integer> villagerProf = new HashMap<>();
-		Map<String, Integer> villagerType = new HashMap<>();
+		List<String> villagerDetails = new ArrayList<>();
 
 		for (Entity e : entities) {
 			if (e instanceof Mob) mobs++;
@@ -315,8 +384,8 @@ public class ForgeWorldContextTool implements WorldContextTool {
 				villagers++;
 				String prof = villagerProfessionId(v);
 				String vtype = villagerTypeId(v);
-				villagerProf.merge(prof, 1, Integer::sum);
-				villagerType.merge(vtype, 1, Integer::sum);
+				String dir = cardinalDirection(playerPos, v.blockPosition());
+				villagerDetails.add(prof + " (" + dir + ")");
 
 				System.out.println("[ForgeWorldContextTool] villager="
 					+ v.getUUID()
@@ -332,13 +401,9 @@ public class ForgeWorldContextTool implements WorldContextTool {
 		out.add(fact("Top nearby entity types: " + topN(mobTop, 5),
 				"forge.entities.types", 0.85, 3_000));
 
-		if (!villagerProf.isEmpty()) {
-			out.add(fact("Nearby villager professions: " + topN(villagerProf, 5),
-					"forge.villager.professions", 0.9, 10_000));
-		}
-		if (!villagerType.isEmpty()) {
-			out.add(fact("Nearby villager types: " + topN(villagerType, 5),
-					"forge.villager.types", 0.9, 10_000));
+		if (!villagerDetails.isEmpty()) {
+			out.add(fact("Nearby villagers: " + String.join(", ", villagerDetails),
+					"forge.villager.details", 0.9, 10_000));
 		}
 
 		return out;
@@ -484,7 +549,8 @@ public class ForgeWorldContextTool implements WorldContextTool {
 	}
 
 	private static boolean wantsMobs(String msg) {
-		return containsAny(msg, "mob", "mobs", "enemy", "enemies", "hostile", "zombie", "skeleton", "creeper", "villager", "nearby");
+		return containsAny(msg, "mob", "mobs", "enemy", "enemies", "hostile", "zombie", "skeleton", "creeper",
+				"villager", "nearby", "anyone", "someone", "around", "people", "folk", "person", "who");
 	}
 
 	private static boolean containsAny(String haystack, String... needles) {

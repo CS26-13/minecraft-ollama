@@ -2,7 +2,9 @@ package net.kevinthedang.ollamamod.chat;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 public class PromptComposerV1 implements PromptComposer {
@@ -53,7 +55,7 @@ public class PromptComposerV1 implements PromptComposer {
                         "- Always check the conversation history for context. If the player references something from a previous message, answer from the history.\n" +
                         "- When a player asks about a material (e.g. 'diamond', 'obsidian', 'iron'), check WORLD INFO for ANY block whose name contains that word. For example: 'obsidian' matches 'crying obsidian'; 'diamond' matches 'diamond ore' and 'deepslate diamond ore'. Always report these matches.\n" +
                         "- NEVER say the words 'FACTS', 'system prompt', 'instructions', 'sensor', or 'grounding' in your replies — these are internal terms the player should never see.\n" +
-                        "- Do NOT mention exact coordinates (x=, y=, z=) unless the player specifically asks for coordinates. Instead, describe locations naturally (e.g. 'nearby', 'just underground', 'not far from here', 'to the left/right').\n\n" +
+                        "- Do NOT mention exact coordinates (x=, y=, z=) unless the player specifically asks for coordinates. Instead, use the directional hints from WORLD INFO (e.g. 'to the north', 'below us', 'nearby to the east').\n\n" +
                         "KNOWLEDGE BOUNDARY:\n" +
                         "- You exist ONLY in the Minecraft world. You have NO knowledge of the real world whatsoever.\n" +
                         "- You do not know about real-world people, companies, countries, history, science, technology, current events, or anything outside of Minecraft.\n" +
@@ -99,7 +101,7 @@ public class PromptComposerV1 implements PromptComposer {
 
         // 3. Inject world/context facts immediately before the player's question so
         //    live sensor readings are the most proximate context the LLM sees.
-        String factsText = formatFacts(worldFacts);
+        String factsText = formatFacts(worldFacts, playerMessage);
         messages.add(Map.of(
                 "role", "system",
                 "content", factsText
@@ -125,12 +127,38 @@ public class PromptComposerV1 implements PromptComposer {
         return messages;
     }
 
-    private static String formatFacts(WorldFactBundle bundle) {
+    // Stop words to exclude when extracting query keywords from the player message
+    private static final Set<String> QUERY_STOP_WORDS = Set.of(
+            "the", "a", "an", "is", "are", "was", "were", "be", "been",
+            "where", "what", "how", "who", "when", "which", "do", "does",
+            "nearest", "closest", "near", "close", "find", "any",
+            "i", "me", "my", "you", "your", "it", "to", "of", "in", "on",
+            "can", "could", "there", "here", "some", "have", "has"
+    );
+
+    private static String formatFacts(WorldFactBundle bundle, String playerMessage) {
         if (bundle == null || bundle.facts() == null || bundle.facts().isEmpty()) {
             return "WORLD INFO:\n- (none)";
         }
+
+        // Extract query keywords for matching against block facts
+        List<String> queryKeywords = extractQueryKeywords(playerMessage);
+
         String joined = bundle.facts().stream()
-                .map(f -> "- " + (f == null ? "" : safe(f.factText())))
+                .map(f -> {
+                    String line = "- " + (f == null ? "" : safe(f.factText()));
+                    // Annotate facts that match the player's query keywords
+                    if (!queryKeywords.isEmpty() && f != null && f.factText() != null) {
+                        String factLower = f.factText().toLowerCase(Locale.ROOT);
+                        for (String keyword : queryKeywords) {
+                            if (factLower.contains(keyword)) {
+                                line += " [MATCHES QUERY]";
+                                break;
+                            }
+                        }
+                    }
+                    return line;
+                })
                 .collect(Collectors.joining("\n"));
 
         // Extract weather fact for explicit constraint (small models need this repeated)
@@ -146,12 +174,27 @@ public class PromptComposerV1 implements PromptComposer {
                 "- If the info above answers the player's question, use it directly — do NOT call tools.\n" +
                 "- This info takes precedence over MEMORY or chat history for current world state (weather, time, location).\n" +
                 weatherConstraint +
+                "- Facts marked [MATCHES QUERY] are directly relevant to the player's current question. Always include them in your answer.\n" +
+                "- Directional hints (N/S/E/W, above/below) tell you where blocks are relative to your position. Use them naturally in conversation (e.g. 'to the north', 'down below').\n" +
                 "- Do not invent new world details beyond what is listed.\n" +
-                "- NEVER say 'WORLD INFO', 'FACTS', 'sensor', or 'according to my data' in your reply. Just speak naturally as a villager.\n" +
+                "- NEVER say 'WORLD INFO', 'FACTS', 'sensor', 'MATCHES QUERY', or 'according to my data' in your reply. Just speak naturally as a villager.\n" +
                 "- Do NOT include exact coordinates (x=, y=, z=) in your reply unless the player explicitly asks for them. Describe locations in natural terms instead.\n";
 
         if (text.length() <= MAX_FACT_CHARS) return text;
         return text.substring(0, MAX_FACT_CHARS - 3) + "...";
+    }
+
+    // Extracts meaningful keywords from the player's message for matching against block facts.
+    private static List<String> extractQueryKeywords(String playerMessage) {
+        if (playerMessage == null || playerMessage.isBlank()) return List.of();
+        String[] words = playerMessage.toLowerCase(Locale.ROOT).replaceAll("[^a-z\\s]", "").split("\\s+");
+        List<String> keywords = new ArrayList<>();
+        for (String word : words) {
+            if (!word.isBlank() && word.length() > 2 && !QUERY_STOP_WORDS.contains(word)) {
+                keywords.add(word);
+            }
+        }
+        return keywords;
     }
 
     // Extracts the weather fact for early injection into the system prompt.
