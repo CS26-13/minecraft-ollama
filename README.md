@@ -45,18 +45,18 @@ It would be awesome to implement [Ollama](https://ollama.com/) into Minecraft as
    ```
 
 3. **Set up Ollama service**
-  Open the Ollama application and navigate to the `Settings` section. 
+    * Open the Ollama application and navigate to the `Settings` section. 
     * Make sure to enable "Expose API to the network" to allow the mod to communicate with the Ollama server. 
-    * Depend on your computer performance, adjust the context length as needed. We recommend 16,000 tokens or more for better conversations, but you can start with a smaller context length if you encounter performance issues.
-    * Log in to your Ollama account within the application to access cloud models like `minimax-m2.5:cloud`. 
+    * Depending on your computer performance, adjust the context length as needed. We recommend 16,000 tokens or more for better conversations, but you can start with a smaller context length if you encounter performance issues.
+    * Log in to your Ollama account within the application to access cloud models like `minimax-m2.5:cloud`.
+    * Then, either keep the Ollama application running or run the command below in the terminal to start Ollama.
    ```bash
    ollama serve
-   # Either keep the Ollama application running or run the above command in the terminal to start the server. The mod will communicate with this server to get responses from the models.
-   # If you run the above command, leave the terminal open to keep the server running. You can stop the server later by pressing Ctrl+C in that terminal. Open another terminal for the next steps.
+   # If you run this command, leave the terminal open to keep Ollama running. You can stop Ollama later by pressing Ctrl+C in that terminal. Open another terminal for the next steps.
    ```
 
 
-4. **Extracting and Organizing Minecraft Knowledge Base** (Only required to run once unless there is an update. Run at project root)
+5. **Extracting and Organizing Minecraft Knowledge Base** (Only required to run once unless there is an update. Run at project root)
 
    ```bash
    npm install minecraft-data
@@ -64,18 +64,18 @@ It would be awesome to implement [Ollama](https://ollama.com/) into Minecraft as
    node tools/minecraft_data_extractor.js
    ```
 
-5. **Seed the vector store** (Minecraft knowledge base for villager conversations. Only required to run once unless there is an update. Run at root of the project)
+6. **Seed the vector store** (Minecraft knowledge base for villager conversations. Only required to run once unless there is an update. Run at root of the project)
    ```bash
    ./gradlew seedData --args="--ingest tools/seed-documents"
    ```
 
-6. **Launch the game**
+7. **Launch the game**
 
    ```bash
    ./gradlew runClient
     ```
 
-7. **Chat with a villager** — find a villager, open the trade screen, and click the **"Chat"** button.
+8. **Chat with a villager** — find a villager, open the trade screen, and click the **"Chat"** button.
 
 ### Running Tests
 
