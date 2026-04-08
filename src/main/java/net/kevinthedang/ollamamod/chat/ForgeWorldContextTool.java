@@ -17,6 +17,11 @@ import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.phys.AABB;
 
+import net.minecraft.tags.FluidTags;
+import net.minecraft.world.level.LightLayer;
+import net.minecraft.world.level.levelgen.Heightmap;
+import net.minecraft.world.level.material.FluidState;
+
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.util.*;
@@ -287,16 +292,46 @@ public class ForgeWorldContextTool implements WorldContextTool {
 		return new BlockScanResult(counts, nearest);
 	}
 
-	// Detects whether the anchor position is outdoors, indoors, or underground.
+	// Detects the setting at the anchor position using multiple signals:
+	// fluid state, sky visibility, heightmap comparison, and light level.
 	private static String detectSetting(Level level, BlockPos anchor) {
 		try {
-			boolean sky = level.canSeeSky(anchor.above());
-			if (sky) return "outdoors";
-			int lightLevel = level.getMaxLocalRawBrightness(anchor);
-			if (lightLevel < 4) return "underground in darkness";
+			// 1. Fluid detection — underwater or in lava
+			FluidState fluid = level.getFluidState(anchor);
+			if (fluid.is(FluidTags.WATER)) {
+				return isUnderground(level, anchor) ? "underwater in a cave" : "underwater";
+			}
+			if (fluid.is(FluidTags.LAVA)) {
+				return "submerged in lava";
+			}
+
+			// 2. Sky visible — outdoors
+			if (level.canSeeSky(anchor.above())) {
+				return "outdoors";
+			}
+
+			// 3. Underground vs indoors — compare Y to heightmap surface
+			if (isUnderground(level, anchor)) {
+				int blockLight = level.getBrightness(LightLayer.BLOCK, anchor);
+				return blockLight >= 4 ? "underground" : "underground in darkness";
+			}
+
+			// 4. Near surface but no sky — indoors (roofed structure)
 			return "indoors";
 		} catch (Throwable t) {
 			return "outdoors";
+		}
+	}
+
+	// Returns true if anchor Y is more than 10 blocks below the heightmap surface,
+	// indicating the position is underground rather than inside a surface structure.
+	private static boolean isUnderground(Level level, BlockPos anchor) {
+		try {
+			int surfaceY = level.getChunk(anchor).getHeight(
+				Heightmap.Types.MOTION_BLOCKING, anchor.getX() & 15, anchor.getZ() & 15);
+			return anchor.getY() < surfaceY - 10;
+		} catch (Throwable t) {
+			return false;
 		}
 	}
 

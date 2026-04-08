@@ -35,7 +35,11 @@ public class OllamaVillagerBrain implements VillagerBrain {
 
         Map<String, Object> requestBody = new HashMap<>();
         requestBody.put("model", OllamaSettings.chatModel);
-        requestBody.put("stream", false); 
+        requestBody.put("stream", false);
+        requestBody.put("keep_alive", "30m");
+        ChatModelRegistry.forOllamaId(OllamaSettings.chatModel).ifPresent(config -> {
+            if (config.think() != null) requestBody.put("think", config.think());
+        });
         requestBody.put("messages", messages);
 
         String json = gson.toJson(requestBody);
@@ -67,6 +71,10 @@ public class OllamaVillagerBrain implements VillagerBrain {
         Map<String, Object> requestBody = new HashMap<>();
         requestBody.put("model", OllamaSettings.chatModel);
         requestBody.put("stream", true);
+        requestBody.put("keep_alive", "30m");
+        ChatModelRegistry.forOllamaId(OllamaSettings.chatModel).ifPresent(config -> {
+            if (config.think() != null) requestBody.put("think", config.think());
+        });
         requestBody.put("messages", messages);
 
         String json = gson.toJson(requestBody);

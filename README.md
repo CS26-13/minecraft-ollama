@@ -39,8 +39,8 @@ It would be awesome to implement [Ollama](https://ollama.com/) into Minecraft as
 
 2. **Pull the required Ollama models**
    ```bash
-   ollama pull granite4:latest
-   ollama pull minimax-m2.5:cloud
+   ollama pull gemma4:e2b
+   ollama pull gemma4:31b-cloud
    ollama pull nomic-embed-text:latest
    ```
 

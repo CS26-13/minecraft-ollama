@@ -27,6 +27,7 @@ import org.slf4j.Logger;
 
 import net.kevinthedang.ollamamod.chat.ChatHistoryManager;
 import net.kevinthedang.ollamamod.chat.AgenticRagVillagerBrain;
+import net.kevinthedang.ollamamod.chat.OllamaSettings;
 import net.kevinthedang.ollamamod.chat.VillagerChatService;
 import net.kevinthedang.ollamamod.vectorstore.embedding.CachingEmbeddingService;
 import net.kevinthedang.ollamamod.vectorstore.embedding.OllamaEmbeddingService;
@@ -73,6 +74,61 @@ public final class OllamaMod {
         LOGGER.info(Config.magicNumberIntroduction + Config.magicNumber);
 
         Config.items.forEach((item) -> LOGGER.info("ITEM >> {}", item.toString()));
+
+        // Pre-warm Ollama models so the first player interaction doesn't pay the load cost.
+        prewarmOllamaModels();
+    }
+
+    // Fire a 1-token throwaway request to each active Ollama model on a background thread.
+    // This forces Ollama to load model weights into memory before the player talks to a villager.
+    private void prewarmOllamaModels() {
+        java.util.Set<String> models = new java.util.LinkedHashSet<>();
+        models.add(OllamaSettings.chatModel);
+        models.add(OllamaSettings.toolModel);
+
+        java.net.http.HttpClient client = java.net.http.HttpClient.newBuilder()
+                .connectTimeout(java.time.Duration.ofSeconds(5))
+                .build();
+        String chatUrl = OllamaSettings.baseUrl + "/api/chat";
+
+        for (String model : models) {
+            Thread.ofVirtual().name("ollama-prewarm-" + model).start(() -> {
+                try {
+                    LOGGER.info("[Prewarm] Loading model: {}", model);
+                    long start = System.currentTimeMillis();
+
+                    String body = new com.google.gson.Gson().toJson(java.util.Map.of(
+                            "model", model,
+                            "stream", false,
+                            "keep_alive", "30m",
+                            "messages", java.util.List.of(
+                                    java.util.Map.of("role", "user", "content", "hi")
+                            ),
+                            "options", java.util.Map.of("num_predict", 1)
+                    ));
+
+                    java.net.http.HttpRequest request = java.net.http.HttpRequest.newBuilder()
+                            .uri(java.net.URI.create(chatUrl))
+                            .header("Content-Type", "application/json")
+                            .POST(java.net.http.HttpRequest.BodyPublishers.ofString(body))
+                            .timeout(java.time.Duration.ofSeconds(120))
+                            .build();
+
+                    java.net.http.HttpResponse<String> response =
+                            client.send(request, java.net.http.HttpResponse.BodyHandlers.ofString());
+
+                    long elapsed = System.currentTimeMillis() - start;
+                    if (response.statusCode() == 200) {
+                        LOGGER.info("[Prewarm] Model {} ready in {}ms", model, elapsed);
+                    } else {
+                        LOGGER.warn("[Prewarm] Model {} returned HTTP {} in {}ms",
+                                model, response.statusCode(), elapsed);
+                    }
+                } catch (Exception e) {
+                    LOGGER.warn("[Prewarm] Failed to warm model {}: {}", model, e.getMessage());
+                }
+            });
+        }
     }
 
 
@@ -170,6 +226,57 @@ public final class OllamaMod {
             if (event.getLevel() instanceof ServerLevel) {
                 CHAT_HISTORY.clearAll();
                 LOGGER.debug("Chat history cleared on world unload");
+            }
+        }
+
+        // Unload Ollama models on server shutdown to free VRAM immediately.
+        @SubscribeEvent
+        public static void onServerStopping(net.minecraftforge.event.server.ServerStoppingEvent event) {
+            unloadOllamaModels();
+        }
+
+        // Send keep_alive:0 to each active model so Ollama evicts it from memory.
+        private static void unloadOllamaModels() {
+            java.util.Set<String> models = new java.util.LinkedHashSet<>();
+            models.add(OllamaSettings.chatModel);
+            models.add(OllamaSettings.toolModel);
+
+            java.net.http.HttpClient client = java.net.http.HttpClient.newBuilder()
+                    .connectTimeout(java.time.Duration.ofSeconds(3))
+                    .build();
+            String chatUrl = OllamaSettings.baseUrl + "/api/chat";
+
+            for (String model : models) {
+                try {
+                    LOGGER.info("[Shutdown] Unloading model: {}", model);
+                    String body = new com.google.gson.Gson().toJson(java.util.Map.of(
+                            "model", model,
+                            "stream", false,
+                            "keep_alive", 0,
+                            "messages", java.util.List.of(
+                                    java.util.Map.of("role", "user", "content", "bye")
+                            ),
+                            "options", java.util.Map.of("num_predict", 1)
+                    ));
+
+                    java.net.http.HttpRequest request = java.net.http.HttpRequest.newBuilder()
+                            .uri(java.net.URI.create(chatUrl))
+                            .header("Content-Type", "application/json")
+                            .POST(java.net.http.HttpRequest.BodyPublishers.ofString(body))
+                            .timeout(java.time.Duration.ofSeconds(10))
+                            .build();
+
+                    java.net.http.HttpResponse<String> response =
+                            client.send(request, java.net.http.HttpResponse.BodyHandlers.ofString());
+
+                    if (response.statusCode() == 200) {
+                        LOGGER.info("[Shutdown] Model {} unloaded", model);
+                    } else {
+                        LOGGER.warn("[Shutdown] Model {} unload returned HTTP {}", model, response.statusCode());
+                    }
+                } catch (Exception e) {
+                    LOGGER.warn("[Shutdown] Failed to unload model {}: {}", model, e.getMessage());
+                }
             }
         }
     }
