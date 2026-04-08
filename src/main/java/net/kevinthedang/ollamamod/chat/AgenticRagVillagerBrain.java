@@ -159,6 +159,7 @@ public class AgenticRagVillagerBrain implements VillagerBrain {
 				});
 			}
 
+			warnIfFakedToolCall(message);
 			String content = extractContent(message);
 			System.out.println("[AgenticRAG] Final reply after " + iteration + " tool iterations");
 			return CompletableFuture.completedFuture(content);
@@ -434,10 +435,26 @@ public class AgenticRagVillagerBrain implements VillagerBrain {
 		Map<String, Object> body = new HashMap<>();
 		body.put("model", model);
 		body.put("stream", stream);
+		body.put("keep_alive", "30m");
 		body.put("messages", messages);
 		if (includeTools) {
 			body.put("tools", OllamaToolDefinition.allTools());
 		}
+		// Apply per-model params from registry (e.g. gemma4 recommended settings).
+		// Models without explicit config (granite4, minimax) get no extra params — preserving defaults.
+		ChatModelRegistry.forOllamaId(model).ifPresent(config -> {
+			if (config.think() != null) {
+				body.put("think", config.think());
+			}
+			if (config.hasOptions()) {
+				Map<String, Object> options = new HashMap<>();
+				if (config.temperature() != null) options.put("temperature", config.temperature());
+				if (config.topP() != null) options.put("top_p", config.topP());
+				if (config.topK() != null) options.put("top_k", config.topK());
+				if (config.numCtx() != null) options.put("num_ctx", config.numCtx());
+				body.put("options", options);
+			}
+		});
 		// No num_predict cap — let the model use its default token limit.
 		// Some models use reasoning tokens internally, so a low cap truncates output.
 		return body;
@@ -448,6 +465,18 @@ public class AgenticRagVillagerBrain implements VillagerBrain {
 		if (message == null || !message.has("tool_calls")) return false;
 		JsonArray calls = message.getAsJsonArray("tool_calls");
 		return calls != null && !calls.isEmpty();
+	}
+
+	// Warn if the model emitted tool-call-like JSON in content instead of using native tool_calls.
+	private void warnIfFakedToolCall(JsonObject message) {
+		if (message == null || hasToolCalls(message)) return;
+		String content = message.has("content") ? message.get("content").getAsString() : "";
+		if ((content.contains("\"name\"") && content.contains("\"arguments\""))
+				|| (content.contains("```json") && content.contains("function"))) {
+			System.out.println("[AgenticRAG] WARNING: Model may have emitted tool calls as plain text "
+					+ "instead of native tool_calls. Content preview: "
+					+ content.substring(0, Math.min(200, content.length())));
+		}
 	}
 
 	// Extracts the text content from an assistant message, falling back if missing.

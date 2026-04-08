@@ -65,6 +65,18 @@ public class Config {
         OllamaSettings.chatModel = CHAT_MODEL.get();
         OllamaSettings.toolModel = TOOL_MODEL.get();
 
+        // Environment variable overrides (take precedence over config file)
+        String envChat = System.getenv("OLLAMA_CHAT_MODEL");
+        if (envChat != null && !envChat.isBlank()) {
+            OllamaSettings.chatModel = envChat.strip();
+            OllamaMod.LOGGER.info("OLLAMA_CHAT_MODEL env var override: {}", OllamaSettings.chatModel);
+        }
+        String envTool = System.getenv("OLLAMA_TOOL_MODEL");
+        if (envTool != null && !envTool.isBlank()) {
+            OllamaSettings.toolModel = envTool.strip();
+            OllamaMod.LOGGER.info("OLLAMA_TOOL_MODEL env var override: {}", OllamaSettings.toolModel);
+        }
+
         // convert the list of strings into a set of items
         items = ITEM_STRINGS.get().stream()
                 .map(itemName -> ForgeRegistries.ITEMS.getValue(ResourceLocation.tryParse(itemName)))

@@ -20,6 +20,8 @@ public class PromptComposerV1 implements PromptComposer {
     ) {
         List<Map<String, String>> messages = new ArrayList<>();
 
+        messages.add(Map.of("role", "system", "content", "Respond directly without reasoning or thinking steps."));
+
         // 1. System persona + guardrails
         String name = safeOrUnknown(ctx == null ? null : ctx.villagerName());
         String prof = safeOrUnknown(ctx == null ? null : ctx.villagerProfession());
