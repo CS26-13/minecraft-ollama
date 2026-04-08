@@ -31,6 +31,7 @@ import java.util.stream.Collectors;
 public class ForgeWorldContextTool implements WorldContextTool {
 	private static final int ENTITY_RADIUS = 24;
 	private static final int MAX_FACTS = 15;
+	private static final boolean DEBUG_VERBOSE = false;
 
 	// Tiered block scanning radii
 	private static final int TIER1_RADIUS = 2;      // 5x5x5 = 125 blocks — report ALL non-air
@@ -125,27 +126,29 @@ public class ForgeWorldContextTool implements WorldContextTool {
 		// Prefer the villager (persona anchor). If not present, fall back to player.
 		Villager anchorVillager = findNearestVillager(level, player.blockPosition(), 12);
 		BlockPos anchorPos = (anchorVillager != null) ? anchorVillager.blockPosition() : player.blockPosition();
+		float anchorYaw = (anchorVillager != null) ? anchorVillager.getYRot() : player.getYRot();
 
 		// Tiered block scanning — always runs, no keyword gate
 		BlockScanResult tier1 = scanTier1(level, anchorPos);
 		BlockScanResult tier2 = scanTier2(level, anchorPos);
 		BlockScanResult tier3 = scanTier3(level, anchorPos);
 
-		// Indoor/outdoor detection
-		String setting = detectSetting(level, anchorPos);
+		// Scene detection using tier 1 block data
+		SceneDescriptionBuilder.SceneKind sceneKind = detectSetting(level, anchorPos, tier1);
+		System.out.println("[ForgeWorldContextTool] detected scene: " + sceneKind);
 
 		// Convert tier-1 blocks to BlockInfo records for SceneDescriptionBuilder
 		List<SceneDescriptionBuilder.BlockInfo> immediateBlocks = toBlockInfoList(tier1, anchorPos);
 
 		// Surroundings fact
-		facts.add(fact(SceneDescriptionBuilder.buildSurroundings(setting, immediateBlocks),
+		facts.add(fact(SceneDescriptionBuilder.buildSurroundings(sceneKind, immediateBlocks),
 				"forge.scene.surroundings", 0.95, 3_000));
 
 		// Notable/rare blocks fact
 		List<SceneDescriptionBuilder.BlockInfo> notableBlocks = new ArrayList<>();
 		notableBlocks.addAll(toBlockInfoList(tier2, anchorPos));
 		notableBlocks.addAll(toBlockInfoList(tier3, anchorPos));
-		String notableDesc = SceneDescriptionBuilder.buildNotableBlocks(notableBlocks);
+		String notableDesc = SceneDescriptionBuilder.buildNotableBlocks(notableBlocks, anchorYaw);
 		if (!notableDesc.isEmpty()) {
 			facts.add(fact("Nearby blocks of interest:" + notableDesc,
 					"forge.scene.notable", 0.9, 5_000));
@@ -153,23 +156,26 @@ public class ForgeWorldContextTool implements WorldContextTool {
 
 		// Always collect lightweight entity info for scene description
 		List<SceneDescriptionBuilder.EntityInfo> entityInfos = collectEntityInfos(level, anchorPos, ENTITY_RADIUS);
-		String entityDesc = SceneDescriptionBuilder.buildEntities(entityInfos);
+		String entityDesc = SceneDescriptionBuilder.buildEntities(entityInfos, anchorYaw);
 		if (!entityDesc.isEmpty()) {
 			facts.add(fact("People and creatures nearby:" + entityDesc,
 					"forge.scene.entities", 0.9, 3_000));
 		}
 
-		if (anchorVillager != null) {
-			facts.add(fact("Anchor villager position: x=" + anchorPos.getX() + ", y=" + anchorPos.getY() + ", z=" + anchorPos.getZ(),
-					"forge.villager.anchor", 0.95, nowTtl));
-		}
-
 		// Agentic router — structures still keyword-gated
 		String msg = playerMessage == null ? "" : playerMessage.toLowerCase(Locale.ROOT);
 
-		// Detailed mob breakdown still keyword-gated
+		// Detailed mob breakdown — gated behind DEBUG_VERBOSE.
+		// The info is already available via the "People and creatures nearby" scene description.
 		if (wantsMobs(msg)) {
-			addCapped(facts, queryNearbyMobs(level, player, ENTITY_RADIUS));
+			List<WorldFact> mobFacts = queryNearbyMobs(level, player, ENTITY_RADIUS);
+			if (DEBUG_VERBOSE) {
+				addCapped(facts, mobFacts);
+			} else {
+				for (WorldFact mf : mobFacts) {
+					System.out.println("[ForgeWorldContextTool] suppressed mob fact: " + mf.factText());
+				}
+			}
 		}
 
 		if (wantsStructures(msg)) {
@@ -292,34 +298,110 @@ public class ForgeWorldContextTool implements WorldContextTool {
 		return new BlockScanResult(counts, nearest);
 	}
 
-	// Detects the setting at the anchor position using multiple signals:
-	// fluid state, sky visibility, heightmap comparison, and light level.
-	private static String detectSetting(Level level, BlockPos anchor) {
+	// Village marker blocks — used by detectSetting to identify village squares
+	private static final Set<String> VILLAGE_MARKERS = Set.of(
+			"minecraft:bell", "minecraft:lectern", "minecraft:composter",
+			"minecraft:cartography_table", "minecraft:smithing_table",
+			"minecraft:fletching_table", "minecraft:stonecutter",
+			"minecraft:grindstone", "minecraft:loom"
+	);
+
+	// Detects the scene kind using multiple signals: fluid state, sky visibility,
+	// heightmap comparison, block above/below, surrounding density from tier 1 scan,
+	// and village markers.
+	private static SceneDescriptionBuilder.SceneKind detectSetting(
+			Level level, BlockPos anchor, BlockScanResult tier1) {
 		try {
-			// 1. Fluid detection — underwater or in lava
+			// 1. Fluid state
 			FluidState fluid = level.getFluidState(anchor);
-			if (fluid.is(FluidTags.WATER)) {
-				return isUnderground(level, anchor) ? "underwater in a cave" : "underwater";
-			}
-			if (fluid.is(FluidTags.LAVA)) {
-				return "submerged in lava";
+			boolean inWater = fluid.is(FluidTags.WATER);
+			boolean inLava = fluid.is(FluidTags.LAVA);
+
+			if (inLava) return SceneDescriptionBuilder.SceneKind.IN_LAVA;
+			if (inWater) {
+				boolean skyVisible = level.canSeeSky(anchor.above());
+				int waterDepth = 0;
+				if (inWater) {
+					BlockPos.MutableBlockPos probe = new BlockPos.MutableBlockPos(
+							anchor.getX(), anchor.getY(), anchor.getZ());
+					for (int i = 0; i < 16; i++) {
+						probe.move(0, 1, 0);
+						if (!level.getFluidState(probe).is(FluidTags.WATER)) break;
+						waterDepth++;
+					}
+				}
+				if (skyVisible && waterDepth < 3) return SceneDescriptionBuilder.SceneKind.IN_SHALLOW_WATER;
+				return SceneDescriptionBuilder.SceneKind.IN_DEEP_WATER;
 			}
 
-			// 2. Sky visible — outdoors
-			if (level.canSeeSky(anchor.above())) {
-				return "outdoors";
+			// 2. Underground depth
+			int surfaceY = level.getChunk(anchor).getHeight(
+					Heightmap.Types.MOTION_BLOCKING, anchor.getX() & 15, anchor.getZ() & 15);
+			int depthBelowSurface = surfaceY - anchor.getY();
+			boolean isDeepUnderground = depthBelowSurface > 30;
+			boolean isBelowSurface = depthBelowSurface > 10;
+
+			if (isDeepUnderground) return SceneDescriptionBuilder.SceneKind.DEEP_UNDERGROUND;
+			if (isBelowSurface) return SceneDescriptionBuilder.SceneKind.CAVE;
+
+			// 3. Sky visibility
+			boolean skyVisible = level.canSeeSky(anchor.above());
+
+			// 4. Block above (3 blocks up) — ceiling type
+			BlockState aboveState = level.getBlockState(anchor.above(3));
+			String aboveId = BuiltInRegistries.BLOCK.getKey(aboveState.getBlock()).toString();
+			boolean aboveIsLeaves = aboveId.contains("leaves");
+			boolean aboveIsWood = aboveId.contains("planks") || aboveId.contains("log")
+					|| aboveId.contains("wood");
+			boolean aboveIsStone = aboveId.contains("stone") || aboveId.contains("brick")
+					|| aboveId.contains("deepslate") || aboveId.contains("cobble");
+			boolean aboveIsGlass = aboveId.contains("glass");
+
+			// 5. Block below
+			String belowId = BuiltInRegistries.BLOCK.getKey(
+					level.getBlockState(anchor.below()).getBlock()).toString();
+			boolean belowIsSand = belowId.contains("sand");
+			boolean belowIsStone = belowId.contains("stone") || belowId.contains("deepslate");
+
+			// 6. Surrounding density from tier 1 scan (5x5x5 = 125 positions)
+			int totalNonAir = tier1.counts().values().stream().mapToInt(Integer::intValue).sum();
+			boolean isEnclosed = totalNonAir > 60;
+			boolean isOpen = totalNonAir < 15;
+
+			// 7. Village markers in tier 1 scan
+			boolean hasVillageMarkers = tier1.counts().keySet().stream()
+					.anyMatch(VILLAGE_MARKERS::contains);
+
+			// 8. Leaf count from tier 1 scan
+			int leafCount = tier1.counts().entrySet().stream()
+					.filter(e -> e.getKey().contains("leaves"))
+					.mapToInt(Map.Entry::getValue)
+					.sum();
+			boolean surroundedByLeaves = leafCount > 8;
+
+			// Classification: sky-visible outdoor categories
+			if (skyVisible) {
+				if (hasVillageMarkers) return SceneDescriptionBuilder.SceneKind.VILLAGE_SQUARE;
+				if (surroundedByLeaves) return SceneDescriptionBuilder.SceneKind.FOREST;
+				if (belowIsSand) return SceneDescriptionBuilder.SceneKind.BEACH;
+				if (anchor.getY() > 100 && belowIsStone) return SceneDescriptionBuilder.SceneKind.MOUNTAIN;
+				return SceneDescriptionBuilder.SceneKind.OPEN_FIELD;
 			}
 
-			// 3. Underground vs indoors — compare Y to heightmap surface
-			if (isUnderground(level, anchor)) {
-				int blockLight = level.getBrightness(LightLayer.BLOCK, anchor);
-				return blockLight >= 4 ? "underground" : "underground in darkness";
-			}
+			// No sky, surface level — distinguish shelter types
+			if (aboveIsLeaves) return SceneDescriptionBuilder.SceneKind.UNDER_TREE_CANOPY;
+			if (aboveIsGlass) return SceneDescriptionBuilder.SceneKind.INSIDE_GLASS_STRUCTURE;
+			if (aboveIsWood && isEnclosed) return SceneDescriptionBuilder.SceneKind.INSIDE_WOOD_STRUCTURE;
+			if (aboveIsStone && isEnclosed) return SceneDescriptionBuilder.SceneKind.INSIDE_STONE_STRUCTURE;
+			if (!isEnclosed) return SceneDescriptionBuilder.SceneKind.UNDER_OVERHANG;
 
-			// 4. Near surface but no sky — indoors (roofed structure)
-			return "indoors";
+			// Enclosed but ceiling is something else (dirt, etc.)
+			if (hasVillageMarkers) return SceneDescriptionBuilder.SceneKind.VILLAGE_SQUARE;
+
+			return SceneDescriptionBuilder.SceneKind.UNKNOWN;
 		} catch (Throwable t) {
-			return "outdoors";
+			System.out.println("[ForgeWorldContextTool] detectSetting error: " + t.getMessage());
+			return SceneDescriptionBuilder.SceneKind.UNKNOWN;
 		}
 	}
 
