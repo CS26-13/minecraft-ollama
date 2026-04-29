@@ -43,18 +43,24 @@ public final class SkillRouter {
         return skills;
     }
 
-    // Tokenize world-fact text on non-alpha boundaries; match each token against known dangers.
-    // Token-based (not substring) to avoid false positives like "wither skeleton" matching "wither".
+    // Substring-match each danger keyword against the lowercased fact text.
+    // This handles plurals ("fires", "zombies"), punctuation ("fires,"), and
+    // phrases ("Three fires, right next to you") without needing tokenization.
     private static boolean isDangerous(WorldFactBundle worldFacts) {
         if (worldFacts == null || worldFacts.facts() == null) return false;
         for (WorldFact fact : worldFacts.facts()) {
             if (fact == null || fact.factText() == null) continue;
-            String[] tokens = fact.factText().toLowerCase(Locale.ROOT).split("[^a-z]+");
-            for (String tok : tokens) {
-                if (!tok.isBlank() && (HOSTILE_MOBS.contains(tok) || ENV_DANGERS.contains(tok))) {
-                    return true;
+            String lower = fact.factText().toLowerCase(Locale.ROOT);
+            String matched = null;
+            for (String kw : HOSTILE_MOBS) {
+                if (lower.contains(kw)) { matched = kw; break; }
+            }
+            if (matched == null) {
+                for (String kw : ENV_DANGERS) {
+                    if (lower.contains(kw)) { matched = kw; break; }
                 }
             }
+            if (matched != null) return true;
         }
         return false;
     }

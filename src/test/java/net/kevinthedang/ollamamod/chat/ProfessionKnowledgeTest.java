@@ -38,7 +38,8 @@ public class ProfessionKnowledgeTest {
 
     @Test
     public void suggestRedirectForEnchanting() {
-        assertEquals("librarian", ProfessionKnowledge.suggestRedirect("how do I enchant my sword"));
+        // "enchantment", "enchanting table", "mending", "xp" — 4+ librarian hits, 0 weaponsmith hits
+        assertEquals("librarian", ProfessionKnowledge.suggestRedirect("how do I use the enchanting table to get mending at the xp level I need"));
     }
 
     @Test

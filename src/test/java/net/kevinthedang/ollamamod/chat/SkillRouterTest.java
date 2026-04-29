@@ -88,6 +88,30 @@ public class SkillRouterTest {
     }
 
     @Test
+    public void pluralFireTrigersDanger() {
+        List<String> skills = SkillRouter.resolveSkills("hello", factsWith("Three fires, right next to you"), "farmer");
+        assertTrue(skills.contains("skills/danger"), "plural 'fires' should match danger keyword 'fire'");
+    }
+
+    @Test
+    public void pluralZombiesTrigersDanger() {
+        List<String> skills = SkillRouter.resolveSkills("hello", factsWith("Two zombies approaching from the east"), "librarian");
+        assertTrue(skills.contains("skills/danger"), "plural 'zombies' should match danger keyword 'zombie'");
+    }
+
+    @Test
+    public void pluralSkeletonsTrigersDanger() {
+        List<String> skills = SkillRouter.resolveSkills("hello", factsWith("Several skeletons on the hill"), "armorer");
+        assertTrue(skills.contains("skills/danger"), "plural 'skeletons' should match danger keyword 'skeleton'");
+    }
+
+    @Test
+    public void phraseOnFireTrigersDanger() {
+        List<String> skills = SkillRouter.resolveSkills("hello", factsWith("The forest is on fire nearby"), "farmer");
+        assertTrue(skills.contains("skills/danger"), "'on fire' phrase should match danger keyword 'fire'");
+    }
+
+    @Test
     public void multipleSkillsCanBeActive() {
         List<String> skills = SkillRouter.resolveSkills("where can I find diamonds to craft a sword", WorldFactBundle.empty(), "weaponsmith");
         assertTrue(skills.contains("skills/crafting"));

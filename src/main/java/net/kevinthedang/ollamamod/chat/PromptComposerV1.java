@@ -59,7 +59,6 @@ public class PromptComposerV1 implements PromptComposer {
         // Deterministic skill routing — no LLM calls
         List<String> skillKeys = SkillRouter.resolveSkills(playerMessage, worldFacts, profLower);
         ExpertiseLevel expertise = ProfessionKnowledge.classify(profLower, playerMessage);
-        LOGGER.debug("[PromptComposerV1] skills={} expertise={}", skillKeys, expertise);
 
         // Assemble skill sections, capped at MAX_SKILL_CHARS; danger uses persona-specific reaction if available
         StringBuilder skillSb = new StringBuilder();
@@ -78,7 +77,6 @@ public class PromptComposerV1 implements PromptComposer {
             }
             skillSb.append("\n\n").append(skillText);
         }
-        LOGGER.debug("[PromptComposerV1] system prompt chars={}", systemPrompt.length() + skillSb.length());
 
         messages.add(Map.of("role", "system", "content", systemPrompt + skillSb));
 
